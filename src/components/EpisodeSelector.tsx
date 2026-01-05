@@ -12,7 +12,7 @@ import { Settings } from 'lucide-react';
 
 import DanmakuPanel from '@/components/DanmakuPanel';
 import EpisodeFilterSettings from '@/components/EpisodeFilterSettings';
-import type { DanmakuSelection } from '@/lib/danmaku/types';
+import type { DanmakuSelection, DanmakuComment } from '@/lib/danmaku/types';
 import { SearchResult, EpisodeFilterConfig } from '@/lib/types';
 import { getVideoResolutionFromM3u8, processImageUrl } from '@/lib/utils';
 
@@ -51,6 +51,7 @@ interface EpisodeSelectorProps {
   /** 弹幕相关 */
   onDanmakuSelect?: (selection: DanmakuSelection) => void;
   currentDanmakuSelection?: DanmakuSelection | null;
+  onUploadDanmaku?: (comments: DanmakuComment[]) => void;
   /** 观影室房员状态 - 禁用选集和换源，但保留弹幕 */
   isRoomMember?: boolean;
   /** 集数过滤配置 */
@@ -79,6 +80,7 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
   precomputedVideoInfo,
   onDanmakuSelect,
   currentDanmakuSelection,
+  onUploadDanmaku,
   isRoomMember = false,
   episodeFilterConfig = null,
   onFilterConfigUpdate,
@@ -576,6 +578,7 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
             currentEpisodeIndex={value - 1}
             onDanmakuSelect={onDanmakuSelect}
             currentSelection={currentDanmakuSelection || null}
+            onUploadDanmaku={onUploadDanmaku}
           />
         </div>
       )}

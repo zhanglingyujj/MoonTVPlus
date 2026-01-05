@@ -11,6 +11,21 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
 	{
+    version: '206.1.0',
+    date: '2026-01-04',
+	added: [
+		"新增手动上传弹幕功能"
+    ],
+    changed: [
+		"修改页面进度条逻辑",
+		"openlist和emby源改为异步搜索",
+		"提高移动端选集面板高度"
+    ],
+    fixed: [
+		"修复live页面500报错"
+	]
+	},
+	{
     version: '206.0.0',
     date: '2026-01-04',
 	added: [

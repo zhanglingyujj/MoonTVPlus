@@ -12,6 +12,7 @@ export default function TopProgressBar() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const isNavigatingRef = useRef(false);
+  const previousPathnameRef = useRef(pathname);
 
   useEffect(() => {
     // 配置 NProgress
@@ -32,15 +33,31 @@ export default function TopProgressBar() {
 
     // 拦截 router.push
     router.push = function (...args: Parameters<typeof originalPush>) {
-      isNavigatingRef.current = true;
-      NProgress.start();
+      const targetUrl = args[0] as string;
+      const targetPathname = new URL(targetUrl, window.location.href).pathname;
+      const currentPathname = window.location.pathname;
+
+      // /play 和 /live 页面：参数变化也显示进度条
+      // 其他页面：仅路径变化时显示进度条
+      if (currentPathname === '/play' || currentPathname === '/live' || targetPathname !== previousPathnameRef.current) {
+        isNavigatingRef.current = true;
+        NProgress.start();
+      }
       return originalPush.apply(this, args);
     };
 
     // 拦截 router.replace
     router.replace = function (...args: Parameters<typeof originalReplace>) {
-      isNavigatingRef.current = true;
-      NProgress.start();
+      const targetUrl = args[0] as string;
+      const targetPathname = new URL(targetUrl, window.location.href).pathname;
+      const currentPathname = window.location.pathname;
+
+      // /play 和 /live 页面：参数变化也显示进度条
+      // 其他页面：仅路径变化时显示进度条
+      if (currentPathname === '/play' || currentPathname === '/live' || targetPathname !== previousPathnameRef.current) {
+        isNavigatingRef.current = true;
+        NProgress.start();
+      }
       return originalReplace.apply(this, args);
     };
 
@@ -71,7 +88,8 @@ export default function TopProgressBar() {
           const currentOrigin = window.location.origin;
           try {
             const targetOrigin = new URL(targetUrl, currentOrigin).origin;
-            if (currentOrigin === targetOrigin) {
+            const targetPathname = new URL(targetUrl, currentOrigin).pathname;
+            if (currentOrigin === targetOrigin && targetPathname !== previousPathnameRef.current) {
               isNavigatingRef.current = true;
               NProgress.start();
             }
@@ -106,11 +124,12 @@ export default function TopProgressBar() {
   }, [router]);
 
   useEffect(() => {
-    // 页面路径变化时，表示页面已加载完成，结束进度条
+    // 仅在页面路径变化时结束进度条，参数变化不触发
     if (isNavigatingRef.current) {
       NProgress.done();
       isNavigatingRef.current = false;
     }
+    previousPathnameRef.current = pathname;
   }, [pathname, searchParams]);
 
   return null;
