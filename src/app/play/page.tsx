@@ -41,6 +41,10 @@ import {
   saveDanmakuSourceIndex,
   getManualDanmakuSelection,
   saveManualDanmakuSelection,
+  saveDanmakuSearchKeyword,
+  getDanmakuSearchKeyword,
+  saveDanmakuAnimeId,
+  getDanmakuAnimeId,
 } from '@/lib/danmaku/selection-memory';
 import type { DanmakuAnime, DanmakuSelection, DanmakuSettings } from '@/lib/danmaku/types';
 import { SearchResult, DanmakuFilterConfig, EpisodeFilterConfig } from '@/lib/types';
@@ -662,12 +666,44 @@ function PlayPageClient() {
         }
       }
 
-      // 执行自动搜索弹幕
+      // 尝试使用保存的动漫ID自动匹配剧集
+      const savedAnimeId = getDanmakuAnimeId(title);
+      if (savedAnimeId) {
+        console.log(`[弹幕记忆] 尝试使用保存的动漫ID: ${savedAnimeId}`);
+        setDanmakuLoading(true);
+        try {
+          const episodesResult = await getEpisodes(savedAnimeId);
+
+          if (episodesResult.success && episodesResult.bangumi.episodes.length > 0) {
+            // 根据当前集数选择对应的弹幕
+            const videoEpTitle = detailRef.current?.episodes_titles?.[episodeIndex];
+            const episode = matchDanmakuEpisode(episodeIndex, episodesResult.bangumi.episodes, videoEpTitle);
+
+            if (episode) {
+              console.log(`[弹幕记忆] 使用保存的动漫ID匹配成功: ${episode.episodeTitle}`);
+              await loadDanmaku(episode.episodeId);
+              setDanmakuEpisodesList(episodesResult.bangumi.episodes);
+              return; // 匹配成功，直接返回
+            } else {
+              console.log('[弹幕记忆] 使用保存的动漫ID匹配失败，降级到关键词搜索');
+            }
+          }
+        } catch (error) {
+          console.error('[弹幕记忆] 使用保存的动漫ID失败:', error);
+        }
+      }
+
+      // 执行自动搜索弹幕（优先使用保存的关键词）
       console.log(`[弹幕] 开始自动搜索`);
       setDanmakuLoading(true);
 
+      // 优先使用保存的搜索关键词，否则使用视频标题
+      const savedKeyword = getDanmakuSearchKeyword(title);
+      const searchKeyword = savedKeyword || title;
+      console.log(`[弹幕] 搜索关键词: ${searchKeyword}${savedKeyword ? ' (使用保存的关键词)' : ' (使用视频标题)'}`);
+
       try {
-        const searchResult = await searchAnime(title);
+        const searchResult = await searchAnime(searchKeyword);
 
         if (searchResult.success && searchResult.animes.length > 0) {
           // 应用智能过滤：优先匹配年份和标题
@@ -727,7 +763,7 @@ function PlayPageClient() {
             // 没有记忆或记忆失效，让用户选择
             console.log(`等待用户选择弹幕源`);
             setDanmakuMatches(filteredAnimes);
-            setCurrentSearchKeyword(title);
+            setCurrentSearchKeyword(searchKeyword); // 保存当前搜索关键词
             setShowDanmakuSourceSelector(true);
             setDanmakuLoading(false);
             if (artPlayerRef.current) {
@@ -1328,8 +1364,8 @@ function PlayPageClient() {
       !detailData.episodes ||
       episodeIndex >= detailData.episodes.length
     ) {
-      // openlist 源的剧集是懒加载的，如果 episodes 为空则跳过
-      if (detailData?.source === 'openlist' && (!detailData.episodes || detailData.episodes.length === 0)) {
+      // openlist 和 emby 源的剧集是懒加载的，如果 episodes 为空则跳过
+      if ((detailData?.source === 'openlist' || detailData?.source === 'emby') && (!detailData.episodes || detailData.episodes.length === 0)) {
         return;
       }
       setVideoUrl('');
@@ -2207,8 +2243,9 @@ function PlayPageClient() {
                     ? result.year.toLowerCase() === videoYearRef.current.toLowerCase()
                     : true) &&
                   (searchType
-                    ? // openlist 源跳过 episodes 长度检查，因为搜索时不返回详细播放列表
+                    ? // openlist 和 emby 源跳过 episodes 长度检查，因为搜索时不返回详细播放列表
                       result.source === 'openlist' ||
+                      result.source === 'emby' ||
                       (searchType === 'tv' && result.episodes.length > 1) ||
                       (searchType === 'movie' && result.episodes.length === 1)
                     : true)
@@ -2241,8 +2278,9 @@ function PlayPageClient() {
               ? result.year.toLowerCase() === videoYearRef.current.toLowerCase()
               : true) &&
             (searchType
-              ? // openlist 源跳过 episodes 长度检查，因为搜索时不返回详细播放列表
+              ? // openlist 和 emby 源跳过 episodes 长度检查，因为搜索时不返回详细播放列表
                 result.source === 'openlist' ||
+                result.source === 'emby' ||
                 (searchType === 'tv' && result.episodes.length > 1) ||
                 (searchType === 'movie' && result.episodes.length === 1)
               : true)
@@ -2327,9 +2365,9 @@ function PlayPageClient() {
         if (target) {
           detailData = target;
 
-          // 如果是 openlist 源且 episodes 为空，需要调用 detail 接口获取完整信息
-          if (detailData.source === 'openlist' && (!detailData.episodes || detailData.episodes.length === 0)) {
-            console.log('[Play] OpenList source has no episodes, fetching detail...');
+          // 如果是 openlist 或 emby 源且 episodes 为空，需要调用 detail 接口获取完整信息
+          if ((detailData.source === 'openlist' || detailData.source === 'emby') && (!detailData.episodes || detailData.episodes.length === 0)) {
+            console.log('[Play] OpenList/Emby source has no episodes, fetching detail...');
             const detailSources = await fetchSourceDetail(currentSource, currentId, searchTitle || videoTitle);
             if (detailSources.length > 0) {
               detailData = detailSources[0];
@@ -2350,14 +2388,25 @@ function PlayPageClient() {
         setLoadingStage('preferring');
         setLoadingMessage('⚡ 正在优选最佳播放源...');
 
-        detailData = await preferBestSource(sourcesInfo);
+        // 过滤掉 openlist 和 emby 源，它们不参与测速
+        const sourcesToTest = sourcesInfo.filter(s => s.source !== 'openlist' && s.source !== 'emby');
+        const excludedSources = sourcesInfo.filter(s => s.source === 'openlist' || s.source === 'emby');
+
+        if (sourcesToTest.length > 0) {
+          detailData = await preferBestSource(sourcesToTest);
+        } else if (excludedSources.length > 0) {
+          // 如果只有 openlist/emby 源，直接使用第一个
+          detailData = excludedSources[0];
+        } else {
+          detailData = sourcesInfo[0];
+        }
       }
 
       console.log(detailData.source, detailData.id);
 
-      // 如果是 openlist 源且 episodes 为空，需要调用 detail 接口获取完整信息
-      if (detailData.source === 'openlist' && (!detailData.episodes || detailData.episodes.length === 0)) {
-        console.log('[Play] OpenList source has no episodes after selection, fetching detail...');
+      // 如果是 openlist 或 emby 源且 episodes 为空，需要调用 detail 接口获取完整信息
+      if ((detailData.source === 'openlist' || detailData.source === 'emby') && (!detailData.episodes || detailData.episodes.length === 0)) {
+        console.log('[Play] OpenList/Emby source has no episodes after selection, fetching detail...');
         const detailSources = await fetchSourceDetail(detailData.source, detailData.id, detailData.title || videoTitleRef.current);
         if (detailSources.length > 0) {
           detailData = detailSources[0];
@@ -2498,6 +2547,68 @@ function PlayPageClient() {
     }
   }, [searchParams, currentSource, currentId, availableSources, currentEpisodeIndex]);
 
+  // 监听 detail 和 currentEpisodeIndex 变化，动态更新字幕
+  useEffect(() => {
+    if (!artPlayerRef.current || !detail) return;
+
+    const currentSubtitles = detail.subtitles?.[currentEpisodeIndex] || [];
+    const savedSubtitleSize = typeof window !== 'undefined' ? localStorage.getItem('subtitleSize') || '2em' : '2em';
+
+    // 如果有字幕，更新播放器字幕
+    if (currentSubtitles.length > 0) {
+      artPlayerRef.current.subtitle.switch(currentSubtitles[0].url, {
+        type: 'vtt',
+        style: {
+          color: '#fff',
+          fontSize: savedSubtitleSize,
+        },
+        encoding: 'utf-8',
+      });
+
+      // 移除旧的字幕设置，添加新的
+      try {
+        artPlayerRef.current.setting.remove('subtitle-selector');
+      } catch (e) {
+        // 忽略错误，可能设置项不存在
+      }
+
+      const subtitleOptions = [
+        { html: '关闭', url: '' },
+        ...currentSubtitles.map((sub: any) => ({
+          html: sub.label,
+          url: sub.url,
+        })),
+      ];
+
+      artPlayerRef.current.setting.add({
+        name: 'subtitle-selector',
+        html: '字幕',
+        selector: subtitleOptions,
+        onSelect: function (item: any) {
+          if (artPlayerRef.current) {
+            if (item.url === '') {
+              artPlayerRef.current.subtitle.show = false;
+            } else {
+              artPlayerRef.current.subtitle.switch(item.url, {
+                name: item.html,
+              });
+              artPlayerRef.current.subtitle.show = true;
+            }
+          }
+          return item.html;
+        },
+      });
+    } else {
+      // 没有字幕时，隐藏字幕并移除字幕设置
+      artPlayerRef.current.subtitle.show = false;
+      try {
+        artPlayerRef.current.setting.remove('subtitle-selector');
+      } catch (e) {
+        // 忽略错误，可能设置项不存在
+      }
+    }
+  }, [detail, currentEpisodeIndex]);
+
   // 处理换源
   const handleSourceChange = async (
     newSource: string,
@@ -2548,8 +2659,8 @@ function PlayPageClient() {
         return;
       }
 
-      // 如果是 openlist 源且 episodes 为空，需要调用 detail 接口获取完整信息
-      if (newDetail.source === 'openlist' && (!newDetail.episodes || newDetail.episodes.length === 0)) {
+      // 如果是 openlist 或 emby 源且 episodes 为空，需要调用 detail 接口获取完整信息
+      if ((newDetail.source === 'openlist' || newDetail.source === 'emby') && (!newDetail.episodes || newDetail.episodes.length === 0)) {
         try {
           const detailResponse = await fetch(`/api/source-detail?source=${newSource}&id=${newId}&title=${encodeURIComponent(newTitle)}`);
           if (detailResponse.ok) {
@@ -2923,6 +3034,15 @@ function PlayPageClient() {
     const episodeIndex = currentEpisodeIndexRef.current;
     if (title && episodeIndex >= 0) {
       saveManualDanmakuSelection(title, episodeIndex, selection.episodeId);
+
+      // 保存用户手动选择的动漫ID（用于换集时自动匹配）
+      saveDanmakuAnimeId(title, selection.animeId);
+
+      // 保存搜索关键词（如果有的话）
+      if (selection.searchKeyword) {
+        saveDanmakuSearchKeyword(title, selection.searchKeyword);
+        console.log(`[弹幕记忆] 保存手动搜索关键词: ${selection.searchKeyword}`);
+      }
     }
 
     // 获取该动漫的所有剧集列表
@@ -3136,9 +3256,10 @@ function PlayPageClient() {
     console.log('[弹幕] 缓存未命中，开始搜索');
     setDanmakuLoading(true);
 
-    // 使用视频标题作为搜索关键词
-    const searchKeyword = title;
-    console.log('[弹幕] 搜索关键词:', searchKeyword, '(使用视频标题)');
+    // 优先使用保存的搜索关键词，否则使用视频标题
+    const savedKeyword = getDanmakuSearchKeyword(title);
+    const searchKeyword = savedKeyword || title;
+    console.log(`[弹幕] 搜索关键词: ${searchKeyword}${savedKeyword ? ' (使用保存的关键词)' : ' (使用视频标题)'}`);
 
     try {
       const searchResult = await searchAnime(searchKeyword);
@@ -3479,8 +3600,8 @@ function PlayPageClient() {
       return;
     }
 
-    // openlist 源的剧集是懒加载的，如果 episodes 为空则跳过检查
-    if ((currentSource === 'openlist' || detail?.source === 'openlist') && (!detail || !detail.episodes || detail.episodes.length === 0)) {
+    // openlist 和 emby 源的剧集是懒加载的，如果 episodes 为空则跳过检查
+    if ((currentSource === 'openlist' || currentSource === 'emby' || detail?.source === 'openlist' || detail?.source === 'emby') && (!detail || !detail.episodes || detail.episodes.length === 0)) {
       return;
     }
 
@@ -3595,6 +3716,10 @@ function PlayPageClient() {
         Artplayer.PLAYBACK_RATE = [0.5, 0.75, 1, 1.25, 1.5, 2, 3];
         Artplayer.USE_RAF = true;
 
+        // 获取当前集的字幕
+        const currentSubtitles = detail?.subtitles?.[currentEpisodeIndex] || [];
+        const savedSubtitleSize = typeof window !== 'undefined' ? localStorage.getItem('subtitleSize') || '2em' : '2em';
+
         artPlayerRef.current = new Artplayer({
           container: artRef.current!,
         url: videoUrl,
@@ -3614,6 +3739,17 @@ function PlayPageClient() {
         aspectRatio: false,
         fullscreen: !isIOS,  // iOS 禁用原生全屏按钮，避免触发系统播放器
         fullscreenWeb: true,  // 保留网页全屏按钮（所有平台）
+        ...(currentSubtitles.length > 0 ? {
+          subtitle: {
+            url: currentSubtitles[0].url,
+            type: 'vtt',
+            style: {
+              color: '#fff',
+              fontSize: savedSubtitleSize,
+            },
+            encoding: 'utf-8',
+          }
+        } : {}),
         subtitleOffset: false,
         miniProgressBar: false,
         mutex: true,
@@ -4531,6 +4667,70 @@ function PlayPageClient() {
         // 标记播放器已就绪，触发 usePlaySync 设置事件监听器
         setPlayerReady(true);
         console.log('[PlayPage] Player ready, triggering sync setup');
+
+        // 添加字幕切换功能
+        const currentSubtitles = detail?.subtitles?.[currentEpisodeIndex] || [];
+        if (currentSubtitles.length > 0 && artPlayerRef.current) {
+          const subtitleOptions = [
+            {
+              html: '关闭',
+              url: '',
+            },
+            ...currentSubtitles.map((sub: any) => ({
+              html: sub.label,
+              url: sub.url,
+            })),
+          ];
+
+          artPlayerRef.current.setting.add({
+            html: '字幕',
+            selector: subtitleOptions,
+            onSelect: function (item: any) {
+              if (artPlayerRef.current) {
+                if (item.url === '') {
+                  // 关闭字幕
+                  artPlayerRef.current.subtitle.show = false;
+                } else {
+                  // 切换字幕
+                  artPlayerRef.current.subtitle.switch(item.url, {
+                    name: item.html,
+                  });
+                  artPlayerRef.current.subtitle.show = true;
+                }
+              }
+              return item.html;
+            },
+          });
+        }
+
+        // 添加字幕大小设置
+        if (artPlayerRef.current) {
+          const savedSubtitleSize = typeof window !== 'undefined' ? localStorage.getItem('subtitleSize') || '2em' : '2em';
+          const defaultOption = savedSubtitleSize === '1em' ? '小' : savedSubtitleSize === '3em' ? '大' : savedSubtitleSize === '4em' ? '超大' : '中';
+
+          artPlayerRef.current.setting.add({
+            html: '字幕大小',
+            selector: [
+              { html: '小', size: '1em' },
+              { html: '中', size: '2em' },
+              { html: '大', size: '3em' },
+              { html: '超大', size: '4em' },
+            ],
+            onSelect: function (item: any) {
+              if (artPlayerRef.current) {
+                artPlayerRef.current.subtitle.style({
+                  fontSize: item.size,
+                });
+                // 保存到 localStorage
+                if (typeof window !== 'undefined') {
+                  localStorage.setItem('subtitleSize', item.size);
+                }
+              }
+              return item.html;
+            },
+            default: defaultOption,
+          });
+        }
 
         // 控制截图按钮在小屏幕竖屏时隐藏
         const updateScreenshotVisibility = () => {
@@ -5962,11 +6162,16 @@ function PlayPageClient() {
                         <button
                           onClick={(e) => {
                             e.preventDefault();
+                            // 如果当前是代理播放模式，使用原始 URL；否则使用当前 videoUrl
+                            let urlToUse = videoUrl;
+                            if (sourceProxyMode && detail?.episodes && currentEpisodeIndex < detail.episodes.length) {
+                              urlToUse = detail.episodes[currentEpisodeIndex];
+                            }
                             // 使用代理 URL
                             const tokenParam = proxyToken ? `&token=${encodeURIComponent(proxyToken)}` : '';
                             const proxyUrl = externalPlayerAdBlock
-                              ? `${window.location.origin}/api/proxy-m3u8?url=${encodeURIComponent(videoUrl)}&source=${encodeURIComponent(currentSource)}${tokenParam}`
-                              : videoUrl;
+                              ? `${window.location.origin}/api/proxy-m3u8?url=${encodeURIComponent(urlToUse)}&source=${encodeURIComponent(currentSource)}${tokenParam}`
+                              : urlToUse;
                             // URL encode 避免冒号被吃掉
                             window.open(`potplayer://${proxyUrl}`, '_blank');
                           }}
@@ -5987,11 +6192,16 @@ function PlayPageClient() {
                       <button
                         onClick={(e) => {
                           e.preventDefault();
+                          // 如果当前是代理播放模式，使用原始 URL；否则使用当前 videoUrl
+                          let urlToUse = videoUrl;
+                          if (sourceProxyMode && detail?.episodes && currentEpisodeIndex < detail.episodes.length) {
+                            urlToUse = detail.episodes[currentEpisodeIndex];
+                          }
                           // 使用代理 URL
                           const tokenParam = proxyToken ? `&token=${encodeURIComponent(proxyToken)}` : '';
                           const proxyUrl = externalPlayerAdBlock
-                            ? `${window.location.origin}/api/proxy-m3u8?url=${encodeURIComponent(videoUrl)}&source=${encodeURIComponent(currentSource)}${tokenParam}`
-                            : videoUrl;
+                            ? `${window.location.origin}/api/proxy-m3u8?url=${encodeURIComponent(urlToUse)}&source=${encodeURIComponent(currentSource)}${tokenParam}`
+                            : urlToUse;
                           // URL encode 避免冒号被吃掉
                           window.open(`vlc://${proxyUrl}`, '_blank');
                         }}
@@ -6012,11 +6222,16 @@ function PlayPageClient() {
                       <button
                         onClick={(e) => {
                           e.preventDefault();
+                          // 如果当前是代理播放模式，使用原始 URL；否则使用当前 videoUrl
+                          let urlToUse = videoUrl;
+                          if (sourceProxyMode && detail?.episodes && currentEpisodeIndex < detail.episodes.length) {
+                            urlToUse = detail.episodes[currentEpisodeIndex];
+                          }
                           // 使用代理 URL
                           const tokenParam = proxyToken ? `&token=${encodeURIComponent(proxyToken)}` : '';
                           const proxyUrl = externalPlayerAdBlock
-                            ? `${window.location.origin}/api/proxy-m3u8?url=${encodeURIComponent(videoUrl)}&source=${encodeURIComponent(currentSource)}${tokenParam}`
-                            : videoUrl;
+                            ? `${window.location.origin}/api/proxy-m3u8?url=${encodeURIComponent(urlToUse)}&source=${encodeURIComponent(currentSource)}${tokenParam}`
+                            : urlToUse;
                           // URL encode 避免冒号被吃掉
                           window.open(`mpv://${proxyUrl}`, '_blank');
                         }}
@@ -6037,11 +6252,16 @@ function PlayPageClient() {
                       <button
                         onClick={(e) => {
                           e.preventDefault();
+                          // 如果当前是代理播放模式，使用原始 URL；否则使用当前 videoUrl
+                          let urlToUse = videoUrl;
+                          if (sourceProxyMode && detail?.episodes && currentEpisodeIndex < detail.episodes.length) {
+                            urlToUse = detail.episodes[currentEpisodeIndex];
+                          }
                           // 使用代理 URL
                           const tokenParam = proxyToken ? `&token=${encodeURIComponent(proxyToken)}` : '';
                           const proxyUrl = externalPlayerAdBlock
-                            ? `${window.location.origin}/api/proxy-m3u8?url=${encodeURIComponent(videoUrl)}&source=${encodeURIComponent(currentSource)}${tokenParam}`
-                            : videoUrl;
+                            ? `${window.location.origin}/api/proxy-m3u8?url=${encodeURIComponent(urlToUse)}&source=${encodeURIComponent(currentSource)}${tokenParam}`
+                            : urlToUse;
                           window.open(
                             `intent://${proxyUrl}#Intent;package=com.mxtech.videoplayer.ad;S.title=${encodeURIComponent(
                               videoTitle
@@ -6066,11 +6286,16 @@ function PlayPageClient() {
                       <button
                         onClick={(e) => {
                           e.preventDefault();
+                          // 如果当前是代理播放模式，使用原始 URL；否则使用当前 videoUrl
+                          let urlToUse = videoUrl;
+                          if (sourceProxyMode && detail?.episodes && currentEpisodeIndex < detail.episodes.length) {
+                            urlToUse = detail.episodes[currentEpisodeIndex];
+                          }
                           // 使用代理 URL
                           const tokenParam = proxyToken ? `&token=${encodeURIComponent(proxyToken)}` : '';
                           const proxyUrl = externalPlayerAdBlock
-                            ? `${window.location.origin}/api/proxy-m3u8?url=${encodeURIComponent(videoUrl)}&source=${encodeURIComponent(currentSource)}${tokenParam}`
-                            : videoUrl;
+                            ? `${window.location.origin}/api/proxy-m3u8?url=${encodeURIComponent(urlToUse)}&source=${encodeURIComponent(currentSource)}${tokenParam}`
+                            : urlToUse;
                           window.open(`nplayer-${proxyUrl}`, '_blank');
                         }}
                         className='group relative flex items-center justify-center gap-1 w-8 h-8 lg:w-auto lg:h-auto lg:px-2 lg:py-1.5 bg-white hover:bg-gray-100 dark:bg-gray-700 dark:hover:bg-gray-600 text-xs font-medium rounded-md transition-all duration-200 shadow-sm hover:shadow-md cursor-pointer overflow-hidden border border-gray-300 dark:border-gray-600 flex-shrink-0'
@@ -6090,11 +6315,16 @@ function PlayPageClient() {
                       <button
                         onClick={(e) => {
                           e.preventDefault();
+                          // 如果当前是代理播放模式，使用原始 URL；否则使用当前 videoUrl
+                          let urlToUse = videoUrl;
+                          if (sourceProxyMode && detail?.episodes && currentEpisodeIndex < detail.episodes.length) {
+                            urlToUse = detail.episodes[currentEpisodeIndex];
+                          }
                           // 使用代理 URL
                           const tokenParam = proxyToken ? `&token=${encodeURIComponent(proxyToken)}` : '';
                           const proxyUrl = externalPlayerAdBlock
-                            ? `${window.location.origin}/api/proxy-m3u8?url=${encodeURIComponent(videoUrl)}&source=${encodeURIComponent(currentSource)}${tokenParam}`
-                            : videoUrl;
+                            ? `${window.location.origin}/api/proxy-m3u8?url=${encodeURIComponent(urlToUse)}&source=${encodeURIComponent(currentSource)}${tokenParam}`
+                            : urlToUse;
                           window.open(
                             `iina://weblink?url=${encodeURIComponent(
                               proxyUrl

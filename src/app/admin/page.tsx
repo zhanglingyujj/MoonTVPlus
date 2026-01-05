@@ -3399,6 +3399,257 @@ const OpenListConfigComponent = ({
   );
 };
 
+// Emby 媒体库配置组件
+const EmbyConfigComponent = ({
+  config,
+  refreshConfig,
+}: {
+  config: AdminConfig | null;
+  refreshConfig: () => Promise<void>;
+}) => {
+  const { alertModal, showAlert, hideAlert } = useAlertModal();
+  const { isLoading, withLoading } = useLoadingState();
+  const [enabled, setEnabled] = useState(false);
+  const [serverURL, setServerURL] = useState('');
+  const [apiKey, setApiKey] = useState('');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [userId, setUserId] = useState('');
+
+  useEffect(() => {
+    if (config?.EmbyConfig) {
+      setEnabled(config.EmbyConfig.Enabled || false);
+      setServerURL(config.EmbyConfig.ServerURL || '');
+      setApiKey(config.EmbyConfig.ApiKey || '');
+      setUsername(config.EmbyConfig.Username || '');
+      setPassword(config.EmbyConfig.Password || '');
+      setUserId(config.EmbyConfig.UserId || '');
+    }
+  }, [config]);
+
+  const handleSave = async () => {
+    await withLoading('saveEmby', async () => {
+      try {
+        const response = await fetch('/api/admin/emby', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'save',
+            Enabled: enabled,
+            ServerURL: serverURL,
+            ApiKey: apiKey,
+            Username: username,
+            Password: password,
+            UserId: userId,
+          }),
+        });
+
+        if (!response.ok) {
+          const data = await response.json();
+          throw new Error(data.error || '保存失败');
+        }
+
+        await refreshConfig();
+        showSuccess('保存成功', showAlert);
+      } catch (error) {
+        showError(error instanceof Error ? error.message : '保存失败', showAlert);
+        throw error;
+      }
+    });
+  };
+
+  const handleTest = async () => {
+    await withLoading('testEmby', async () => {
+      try {
+        const response = await fetch('/api/admin/emby', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'test',
+            ServerURL: serverURL,
+            ApiKey: apiKey,
+            Username: username,
+            Password: password,
+          }),
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+          showSuccess(data.message || 'Emby 连接测试成功', showAlert);
+        } else {
+          showError(data.message || 'Emby 连接测试失败', showAlert);
+        }
+      } catch (error) {
+        showError(error instanceof Error ? error.message : '测试失败', showAlert);
+      }
+    });
+  };
+
+  const handleClearCache = async () => {
+    await withLoading('clearEmbyCache', async () => {
+      try {
+        const response = await fetch('/api/admin/emby', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'clearCache',
+          }),
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+          showSuccess(data.message || '缓存清除成功', showAlert);
+        } else {
+          showError(data.message || '缓存清除失败', showAlert);
+        }
+      } catch (error) {
+        showError(error instanceof Error ? error.message : '缓存清除失败', showAlert);
+      }
+    });
+  };
+
+  return (
+    <div className='space-y-6'>
+      <AlertModal
+        isOpen={alertModal.isOpen}
+        onClose={hideAlert}
+        type={alertModal.type}
+        title={alertModal.title}
+        message={alertModal.message}
+        timer={alertModal.timer}
+        showConfirm={alertModal.showConfirm}
+        onConfirm={alertModal.onConfirm}
+      />
+
+      {/* 启用开关 */}
+      <div className='flex items-center justify-between'>
+        <label className='text-sm font-medium text-gray-700 dark:text-gray-300'>
+          启用 Emby 媒体库
+        </label>
+        <button
+          onClick={() => setEnabled(!enabled)}
+          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+            enabled ? 'bg-blue-600' : 'bg-gray-200 dark:bg-gray-700'
+          }`}
+        >
+          <span
+            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+              enabled ? 'translate-x-6' : 'translate-x-1'
+            }`}
+          />
+        </button>
+      </div>
+
+      {/* 服务器地址 */}
+      <div>
+        <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2'>
+          Emby 服务器地址
+        </label>
+        <input
+          type='text'
+          value={serverURL}
+          onChange={(e) => setServerURL(e.target.value)}
+          placeholder='http://192.168.1.100:8096'
+          className='w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100'
+        />
+      </div>
+
+      {/* API Key */}
+      <div>
+        <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2'>
+          API Key（推荐）
+        </label>
+        <input
+          type='password'
+          value={apiKey}
+          onChange={(e) => setApiKey(e.target.value)}
+          placeholder='输入 Emby API Key'
+          className='w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100'
+        />
+        <p className='mt-1 text-xs text-gray-500 dark:text-gray-400'>
+          推荐使用 API Key 认证。如果不使用 API Key，请填写下方的用户名和密码。
+        </p>
+      </div>
+
+      {/* 用户名 */}
+      <div>
+        <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2'>
+          用户名（可选）
+        </label>
+        <input
+          type='text'
+          value={username}
+          onChange={(e) => setUsername(e.target.value)}
+          placeholder='Emby 用户名'
+          className='w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100'
+        />
+      </div>
+
+      {/* 密码 */}
+      <div>
+        <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2'>
+          密码（可选）
+        </label>
+        <input
+          type='password'
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          placeholder='Emby 密码'
+          className='w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100'
+        />
+      </div>
+
+      {/* 用户 ID */}
+      <div>
+        <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2'>
+          用户 ID（使用 API Key 时必填）
+        </label>
+        <input
+          type='text'
+          value={userId}
+          onChange={(e) => setUserId(e.target.value)}
+          placeholder='aab507c58e874de6a9bd12388d72f4d2'
+          className='w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100'
+        />
+        <p className='mt-1 text-xs text-gray-500 dark:text-gray-400'>
+          从你的 Emby 抓包数据中获取用户 ID，通常在 URL 中如 /Users/[userId]/...
+        </p>
+      </div>
+
+      {/* 操作按钮 */}
+      <div className='flex gap-3'>
+        <button
+          onClick={handleTest}
+          disabled={isLoading('testEmby')}
+          className='px-4 py-2 bg-gray-600 hover:bg-gray-700 disabled:bg-gray-400 text-white rounded-lg transition-colors'
+        >
+          {isLoading('testEmby') ? '测试中...' : '测试连接'}
+        </button>
+        <button
+          onClick={handleSave}
+          disabled={isLoading('saveEmby')}
+          className='px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white rounded-lg transition-colors'
+        >
+          {isLoading('saveEmby') ? '保存中...' : '保存配置'}
+        </button>
+      </div>
+
+      {/* 清除缓存按钮 */}
+      <div className='flex gap-3'>
+        <button
+          onClick={handleClearCache}
+          disabled={isLoading('clearEmbyCache')}
+          className='px-4 py-2 bg-orange-600 hover:bg-orange-700 disabled:bg-orange-400 text-white rounded-lg transition-colors'
+        >
+          {isLoading('clearEmbyCache') ? '清除中...' : '清除缓存'}
+        </button>
+      </div>
+    </div>
+  );
+};
+
 // 视频源配置组件
 const VideoSourceConfig = ({
   config,
@@ -3500,8 +3751,14 @@ const VideoSourceConfig = ({
         throw new Error(data.error || `操作失败: ${resp.status}`);
       }
 
+      // 获取响应数据
+      const data = await resp.json();
+
       // 成功后刷新配置
       await refreshConfig();
+
+      // 返回响应数据供调用者使用
+      return data;
     } catch (err) {
       showError(err instanceof Error ? err.message : '操作失败', showAlert);
       throw err; // 向上抛出方便调用处判断
@@ -4005,15 +4262,44 @@ const VideoSourceConfig = ({
       message: confirmMessage,
       onConfirm: async () => {
         try {
-          await withLoading(`batchSource_${action}`, () =>
+          const result = await withLoading(`batchSource_${action}`, () =>
             callSourceApi({ action, keys })
           );
-          showAlert({
-            type: 'success',
-            title: `${actionName}成功`,
-            message: `${actionName}了 ${keys.length} 个视频源`,
-            timer: 2000,
-          });
+
+          // 根据操作类型和结果显示不同的消息
+          if (action === 'batch_delete' && result?.deleted !== undefined && result?.skipped !== undefined) {
+            const { deleted, skipped } = result;
+            if (skipped > 0) {
+              showAlert({
+                type: 'warning',
+                title: '批量删除完成',
+                message: `成功删除了 ${deleted} 个视频源，跳过了 ${skipped} 个配置文件中的源（不可删除）`,
+                timer: 3000,
+              });
+            } else if (deleted > 0) {
+              showAlert({
+                type: 'success',
+                title: '批量删除成功',
+                message: `成功删除了 ${deleted} 个视频源`,
+                timer: 2000,
+              });
+            } else {
+              showAlert({
+                type: 'warning',
+                title: '无法删除',
+                message: '所选视频源均为配置文件中的源，不可删除',
+                timer: 3000,
+              });
+            }
+          } else {
+            showAlert({
+              type: 'success',
+              title: `${actionName}成功`,
+              message: `${actionName}了 ${keys.length} 个视频源`,
+              timer: 2000,
+            });
+          }
+
           // 重置选择状态
           setSelectedSources(new Set());
         } catch (err) {
@@ -8779,6 +9065,7 @@ function AdminPageClient() {
     userConfig: false,
     videoSource: false,
     openListConfig: false,
+    embyConfig: false,
     aiConfig: false,
     liveSource: false,
     siteConfig: false,
@@ -9090,6 +9377,18 @@ function AdminPageClient() {
               onToggle={() => toggleTab('openListConfig')}
             >
               <OpenListConfigComponent config={config} refreshConfig={fetchConfig} />
+            </CollapsibleTab>
+
+            {/* Emby 媒体库标签 */}
+            <CollapsibleTab
+              title='Emby 媒体库'
+              icon={
+                <FolderOpen size={20} className='text-gray-600 dark:text-gray-400' />
+              }
+              isExpanded={expandedTabs.embyConfig}
+              onToggle={() => toggleTab('embyConfig')}
+            >
+              <EmbyConfigComponent config={config} refreshConfig={fetchConfig} />
             </CollapsibleTab>
 
             {/* AI配置标签 */}

@@ -27,6 +27,92 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: '缺少必要参数' }, { status: 400 });
   }
 
+  // 特殊处理 emby 源
+  if (sourceCode === 'emby') {
+    try {
+      const config = await getConfig();
+      const embyConfig = config.EmbyConfig;
+
+      if (!embyConfig || !embyConfig.Enabled || !embyConfig.ServerURL) {
+        throw new Error('Emby 未配置或未启用');
+      }
+
+      const { EmbyClient } = await import('@/lib/emby.client');
+      const client = new EmbyClient(embyConfig);
+
+      // 获取媒体详情
+      const item = await client.getItem(id);
+
+      // 根据类型处理
+      if (item.Type === 'Movie') {
+        // 电影
+        const subtitles = client.getSubtitles(item);
+
+        const result = {
+          source: 'emby',
+          source_name: 'Emby',
+          id: item.Id,
+          title: item.Name,
+          poster: client.getImageUrl(item.Id, 'Primary'),
+          year: item.ProductionYear?.toString() || '',
+          douban_id: 0,
+          desc: item.Overview || '',
+          episodes: [client.getStreamUrl(item.Id)],
+          episodes_titles: [item.Name],
+          subtitles: subtitles.length > 0 ? [subtitles] : [],
+          proxyMode: false,
+        };
+
+        return NextResponse.json(result);
+      } else if (item.Type === 'Series') {
+        // 剧集 - 获取所有季和集
+        const seasons = await client.getSeasons(item.Id);
+        const allEpisodes: any[] = [];
+
+        for (const season of seasons) {
+          const episodes = await client.getEpisodes(item.Id, season.Id);
+          allEpisodes.push(...episodes);
+        }
+
+        // 按季和集排序
+        allEpisodes.sort((a, b) => {
+          if (a.ParentIndexNumber !== b.ParentIndexNumber) {
+            return (a.ParentIndexNumber || 0) - (b.ParentIndexNumber || 0);
+          }
+          return (a.IndexNumber || 0) - (b.IndexNumber || 0);
+        });
+
+        const result = {
+          source: 'emby',
+          source_name: 'Emby',
+          id: item.Id,
+          title: item.Name,
+          poster: client.getImageUrl(item.Id, 'Primary'),
+          year: item.ProductionYear?.toString() || '',
+          douban_id: 0,
+          desc: item.Overview || '',
+          episodes: allEpisodes.map((ep) => client.getStreamUrl(ep.Id)),
+          episodes_titles: allEpisodes.map((ep) => {
+            const seasonNum = ep.ParentIndexNumber || 1;
+            const episodeNum = ep.IndexNumber || 1;
+            return `S${seasonNum.toString().padStart(2, '0')}E${episodeNum.toString().padStart(2, '0')}`;
+          }),
+          subtitles: allEpisodes.map((ep) => client.getSubtitles(ep)),
+          proxyMode: false,
+        };
+
+        return NextResponse.json(result);
+      } else {
+        throw new Error('不支持的媒体类型');
+      }
+    } catch (error) {
+      return NextResponse.json(
+        { error: (error as Error).message },
+        { status: 500 }
+      );
+    }
+  }
+
   // 特殊处理 openlist 源 - 直接调用 /api/detail
   if (sourceCode === 'openlist') {
     try {
@@ -128,6 +214,7 @@ export async function GET(request: NextRequest) {
             season: parsed.season,
             title: parsed.title,
             parsed_from: 'filename',
+            isOVA: parsed.isOVA,
           };
         }
         setCachedVideoInfo(folderPath, videoInfo);
@@ -138,20 +225,26 @@ export async function GET(request: NextRequest) {
           const parsed = parseVideoFileName(file.name);
           let episodeInfo;
           if (parsed.episode) {
-            episodeInfo = { episode: parsed.episode, season: parsed.season, title: parsed.title, parsed_from: 'filename' };
+            episodeInfo = { episode: parsed.episode, season: parsed.season, title: parsed.title, parsed_from: 'filename', isOVA: parsed.isOVA };
           } else {
             episodeInfo = videoInfo!.episodes[file.name] || { episode: index + 1, season: undefined, title: undefined, parsed_from: 'filename' };
           }
           let displayTitle = episodeInfo.title;
           if (!displayTitle && episodeInfo.episode) {
-            displayTitle = `第${episodeInfo.episode}集`;
+            displayTitle = episodeInfo.isOVA ? `OVA ${episodeInfo.episode}` : `第${episodeInfo.episode}集`;
           }
           if (!displayTitle) {
             displayTitle = file.name;
           }
-          return { fileName: file.name, episode: episodeInfo.episode || 0, season: episodeInfo.season, title: displayTitle };
+          return { fileName: file.name, episode: episodeInfo.episode || 0, season: episodeInfo.season, title: displayTitle, isOVA: episodeInfo.isOVA };
         })
-        .sort((a, b) => a.episode !== b.episode ? a.episode - b.episode : a.fileName.localeCompare(b.fileName));
+        .sort((a, b) => {
+          // OVA 排在最后
+          if (a.isOVA && !b.isOVA) return 1;
+          if (!a.isOVA && b.isOVA) return -1;
+          // 都是 OVA 或都不是 OVA，按集数排序
+          return a.episode !== b.episode ? a.episode - b.episode : a.fileName.localeCompare(b.fileName);
+        });
 
       // 3. 从 metainfo 中获取元数据
       const { getTMDBImageUrl } = await import('@/lib/tmdb.search');

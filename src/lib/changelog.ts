@@ -11,6 +11,26 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
 	{
+    version: '206.0.0',
+    date: '2026-01-04',
+	added: [
+		"私人影库增加emby支持",
+		"清空增加确认框",
+		"增加页面切换进度条",
+		"增加首页模块配置"
+    ],
+    changed: [
+		"私人影库支持解析ova集数",
+		"优化弹幕匹配逻辑",
+		"修改本地设置面板可折叠",
+		"关闭预告片后不再检测连通性，检测连通性时增加query保证无缓存检测"
+    ],
+    fixed: [
+		"修正视频源代理模式外部播放器链接",
+		"修复删除配置文件源提示成功的问题"
+	]
+	},
+	{
     version: '205.1.0',
     date: '2026-01-02',
 	added: [

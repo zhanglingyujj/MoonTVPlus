@@ -16,6 +16,7 @@ import { DownloadProvider } from '../contexts/DownloadContext';
 import { DownloadBubble } from '../components/DownloadBubble';
 import { DownloadPanel } from '../components/DownloadPanel';
 import { DanmakuCacheCleanup } from '../components/DanmakuCacheCleanup';
+import TopProgressBar from '../components/TopProgressBar';
 
 const inter = Inter({ subsets: ['latin'] });
 export const dynamic = 'force-dynamic';
@@ -64,6 +65,7 @@ export default async function RootLayout({
   let recommendationDataSource = 'Mixed';
   let tmdbApiKey = '';
   let openListEnabled = false;
+  let embyEnabled = false;
   let loginBackgroundImage = '';
   let registerBackgroundImage = '';
   let enableRegistration = false;
@@ -124,6 +126,12 @@ export default async function RootLayout({
       config.OpenListConfig?.Username &&
       config.OpenListConfig?.Password
     );
+    // 检查是否启用了 Emby 功能
+    embyEnabled = !!(
+      config.EmbyConfig?.Enabled &&
+      config.EmbyConfig?.ServerURL &&
+      (config.EmbyConfig?.ApiKey || (config.EmbyConfig?.Username && config.EmbyConfig?.Password))
+    );
   }
 
   // 将运行时配置注入到全局 window 对象，供客户端在运行时读取
@@ -142,6 +150,8 @@ export default async function RootLayout({
     ENABLE_OFFLINE_DOWNLOAD: process.env.NEXT_PUBLIC_ENABLE_OFFLINE_DOWNLOAD === 'true',
     VOICE_CHAT_STRATEGY: process.env.NEXT_PUBLIC_VOICE_CHAT_STRATEGY || 'webrtc-fallback',
     OPENLIST_ENABLED: openListEnabled,
+    EMBY_ENABLED: embyEnabled,
+    PRIVATE_LIBRARY_ENABLED: openListEnabled || embyEnabled,
     LOGIN_BACKGROUND_IMAGE: loginBackgroundImage,
     REGISTER_BACKGROUND_IMAGE: registerBackgroundImage,
     ENABLE_REGISTRATION: enableRegistration,
@@ -185,6 +195,7 @@ export default async function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
+          <TopProgressBar />
           <SiteProvider siteName={siteName} announcement={announcement} tmdbApiKey={tmdbApiKey}>
             <WatchRoomProvider>
               <DownloadProvider>

@@ -61,8 +61,14 @@ export default function BannerCarousel({ autoPlayInterval = 5000 }: BannerCarous
     }
   }, []);
 
-  // 检测YouTube连通性
+  // 检测YouTube连通性 - 仅在启用预告片时检测
   useEffect(() => {
+    // 如果未启用预告片，不进行检测
+    if (!enableTrailers) {
+      setIsYouTubeAccessible(false);
+      return;
+    }
+
     const checkYouTubeAccess = () => {
       const img = document.createElement('img');
       const timeout = setTimeout(() => {
@@ -80,11 +86,12 @@ export default function BannerCarousel({ autoPlayInterval = 5000 }: BannerCarous
         setIsYouTubeAccessible(false);
       };
 
-      img.src = 'https://i.ytimg.com/vi/dQw4w9WgXcQ/default.jpg';
+      // 添加随机查询参数避免缓存
+      img.src = `https://i.ytimg.com/vi/dQw4w9WgXcQ/default.jpg?t=${Date.now()}`;
     };
 
     checkYouTubeAccess();
-  }, []);
+  }, [enableTrailers]);
 
   // 获取热门内容
   useEffect(() => {

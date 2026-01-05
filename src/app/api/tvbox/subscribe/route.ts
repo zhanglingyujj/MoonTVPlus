@@ -71,12 +71,31 @@ export async function GET(request: NextRequest) {
       config.OpenListConfig?.Password
     );
 
+    // 检查是否配置了 Emby
+    const hasEmby = !!(
+      config.EmbyConfig?.Enabled &&
+      config.EmbyConfig?.ServerURL &&
+      (config.EmbyConfig?.ApiKey || (config.EmbyConfig?.Username && config.EmbyConfig?.Password))
+    );
+
     // 构建 OpenList 站点配置
     const openlistSites = hasOpenList ? [{
       key: 'openlist',
       name: '私人影库',
       type: 1,
       api: `${baseUrl}/api/openlist/cms-proxy/${encodeURIComponent(subscribeToken)}`,
+      searchable: 1,
+      quickSearch: 1,
+      filterable: 1,
+      ext: '',
+    }] : [];
+
+    // 构建 Emby 站点配置
+    const embySites = hasEmby ? [{
+      key: 'emby',
+      name: 'Emby媒体库',
+      type: 1,
+      api: `${baseUrl}/api/emby/cms-proxy/${encodeURIComponent(subscribeToken)}`,
       searchable: 1,
       quickSearch: 1,
       filterable: 1,
@@ -90,9 +109,10 @@ export async function GET(request: NextRequest) {
       wallpaper: '',
 
       // 视频源站点 - 根据 adFilter 参数决定是否使用代理
-      // OpenList 源放在最前面
+      // OpenList 和 Emby 源放在最前面
       sites: [
         ...openlistSites,
+        ...embySites,
         ...apiSites.map(site => ({
           key: site.key,
           name: site.name,
