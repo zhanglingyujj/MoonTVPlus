@@ -93,28 +93,33 @@ export async function GET(request: NextRequest) {
       if (hasEmby) {
         Promise.race([
           (async () => {
-            const { EmbyClient } = await import('@/lib/emby.client');
-            const client = new EmbyClient(config.EmbyConfig!);
-            const searchResult = await client.getItems({
-              searchTerm: query,
-              IncludeItemTypes: 'Movie,Series',
-              Recursive: true,
-              Fields: 'Overview,ProductionYear',
-              Limit: 50,
-            });
-            return searchResult.Items.map((item) => ({
-              id: item.Id,
-              source: 'emby',
-              source_name: 'Emby',
-              title: item.Name,
-              poster: client.getImageUrl(item.Id, 'Primary'),
-              episodes: [],
-              episodes_titles: [],
-              year: item.ProductionYear?.toString() || '',
-              desc: item.Overview || '',
-              type_name: item.Type === 'Movie' ? '电影' : '电视剧',
-              douban_id: 0,
-            }));
+            try {
+              const { EmbyClient } = await import('@/lib/emby.client');
+              const client = new EmbyClient(config.EmbyConfig!);
+              const searchResult = await client.getItems({
+                searchTerm: query,
+                IncludeItemTypes: 'Movie,Series',
+                Recursive: true,
+                Fields: 'Overview,ProductionYear',
+                Limit: 50,
+              });
+              return searchResult.Items.map((item) => ({
+                id: item.Id,
+                source: 'emby',
+                source_name: 'Emby',
+                title: item.Name,
+                poster: client.getImageUrl(item.Id, 'Primary'),
+                episodes: [],
+                episodes_titles: [],
+                year: item.ProductionYear?.toString() || '',
+                desc: item.Overview || '',
+                type_name: item.Type === 'Movie' ? '电影' : '电视剧',
+                douban_id: 0,
+              }));
+            } catch (error) {
+              console.error('[Search WS] 搜索 Emby 失败:', error);
+              return [];
+            }
           })(),
           new Promise((_, reject) =>
             setTimeout(() => reject(new Error('Emby timeout')), 20000)
@@ -140,17 +145,17 @@ export async function GET(request: NextRequest) {
             }
           })
           .catch((error) => {
-            console.error('[Search WS] 搜索 Emby 失败:', error);
+            console.error('[Search WS] 搜索 Emby 超时:', error);
             completedSources++;
             if (!streamClosed) {
-              const errorEvent = `data: ${JSON.stringify({
-                type: 'source_error',
+              const sourceEvent = `data: ${JSON.stringify({
+                type: 'source_result',
                 source: 'emby',
                 sourceName: 'Emby',
-                error: error instanceof Error ? error.message : '搜索失败',
+                results: [],
                 timestamp: Date.now()
               })}\n\n`;
-              safeEnqueue(encoder.encode(errorEvent));
+              safeEnqueue(encoder.encode(sourceEvent));
             }
           });
       }
@@ -159,45 +164,50 @@ export async function GET(request: NextRequest) {
       if (hasOpenList) {
         Promise.race([
           (async () => {
-            const { getCachedMetaInfo, setCachedMetaInfo } = await import('@/lib/openlist-cache');
-            const { getTMDBImageUrl } = await import('@/lib/tmdb.search');
-            const { db } = await import('@/lib/db');
+            try {
+              const { getCachedMetaInfo, setCachedMetaInfo } = await import('@/lib/openlist-cache');
+              const { getTMDBImageUrl } = await import('@/lib/tmdb.search');
+              const { db } = await import('@/lib/db');
 
-            const rootPath = config.OpenListConfig!.RootPath || '/';
-            let metaInfo = getCachedMetaInfo(rootPath);
+              const rootPath = config.OpenListConfig!.RootPath || '/';
+              let metaInfo = getCachedMetaInfo(rootPath);
 
-            if (!metaInfo) {
-              const metainfoJson = await db.getGlobalValue('video.metainfo');
-              if (metainfoJson) {
-                metaInfo = JSON.parse(metainfoJson);
-                if (metaInfo) {
-                  setCachedMetaInfo(rootPath, metaInfo);
+              if (!metaInfo) {
+                const metainfoJson = await db.getGlobalValue('video.metainfo');
+                if (metainfoJson) {
+                  metaInfo = JSON.parse(metainfoJson);
+                  if (metaInfo) {
+                    setCachedMetaInfo(rootPath, metaInfo);
+                  }
                 }
               }
-            }
 
-            if (metaInfo && metaInfo.folders) {
-              return Object.entries(metaInfo.folders)
-                .filter(([key, info]: [string, any]) => {
-                  const matchFolder = info.folderName.toLowerCase().includes(query.toLowerCase());
-                  const matchTitle = info.title.toLowerCase().includes(query.toLowerCase());
-                  return matchFolder || matchTitle;
-                })
-                .map(([key, info]: [string, any]) => ({
-                  id: key,
-                  source: 'openlist',
-                  source_name: '私人影库',
-                  title: info.title,
-                  poster: getTMDBImageUrl(info.poster_path),
-                  episodes: [],
-                  episodes_titles: [],
-                  year: info.release_date.split('-')[0] || '',
-                  desc: info.overview,
-                  type_name: info.media_type === 'movie' ? '电影' : '电视剧',
-                  douban_id: 0,
-                }));
+              if (metaInfo && metaInfo.folders) {
+                return Object.entries(metaInfo.folders)
+                  .filter(([key, info]: [string, any]) => {
+                    const matchFolder = info.folderName.toLowerCase().includes(query.toLowerCase());
+                    const matchTitle = info.title.toLowerCase().includes(query.toLowerCase());
+                    return matchFolder || matchTitle;
+                  })
+                  .map(([key, info]: [string, any]) => ({
+                    id: key,
+                    source: 'openlist',
+                    source_name: '私人影库',
+                    title: info.title,
+                    poster: getTMDBImageUrl(info.poster_path),
+                    episodes: [],
+                    episodes_titles: [],
+                    year: info.release_date.split('-')[0] || '',
+                    desc: info.overview,
+                    type_name: info.media_type === 'movie' ? '电影' : '电视剧',
+                    douban_id: 0,
+                  }));
+              }
+              return [];
+            } catch (error) {
+              console.error('[Search WS] 搜索 OpenList 失败:', error);
+              return [];
             }
-            return [];
           })(),
           new Promise((_, reject) =>
             setTimeout(() => reject(new Error('OpenList timeout')), 20000)
@@ -223,17 +233,17 @@ export async function GET(request: NextRequest) {
             }
           })
           .catch((error) => {
-            console.error('[Search WS] 搜索 OpenList 失败:', error);
+            console.error('[Search WS] 搜索 OpenList 超时:', error);
             completedSources++;
             if (!streamClosed) {
-              const errorEvent = `data: ${JSON.stringify({
-                type: 'source_error',
+              const sourceEvent = `data: ${JSON.stringify({
+                type: 'source_result',
                 source: 'openlist',
                 sourceName: '私人影库',
-                error: error instanceof Error ? error.message : '搜索失败',
+                results: [],
                 timestamp: Date.now()
               })}\n\n`;
-              safeEnqueue(encoder.encode(errorEvent));
+              safeEnqueue(encoder.encode(sourceEvent));
             }
           });
       }

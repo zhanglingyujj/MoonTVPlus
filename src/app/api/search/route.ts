@@ -55,34 +55,39 @@ export async function GET(request: NextRequest) {
   const embyPromise = hasEmby
     ? Promise.race([
         (async () => {
-          const { EmbyClient } = await import('@/lib/emby.client');
-          const client = new EmbyClient(config.EmbyConfig!);
-          const searchResult = await client.getItems({
-            searchTerm: query,
-            IncludeItemTypes: 'Movie,Series',
-            Recursive: true,
-            Fields: 'Overview,ProductionYear',
-            Limit: 50,
-          });
-          return searchResult.Items.map((item) => ({
-            id: item.Id,
-            source: 'emby',
-            source_name: 'Emby',
-            title: item.Name,
-            poster: client.getImageUrl(item.Id, 'Primary'),
-            episodes: [],
-            episodes_titles: [],
-            year: item.ProductionYear?.toString() || '',
-            desc: item.Overview || '',
-            type_name: item.Type === 'Movie' ? '电影' : '电视剧',
-            douban_id: 0,
-          }));
+          try {
+            const { EmbyClient } = await import('@/lib/emby.client');
+            const client = new EmbyClient(config.EmbyConfig!);
+            const searchResult = await client.getItems({
+              searchTerm: query,
+              IncludeItemTypes: 'Movie,Series',
+              Recursive: true,
+              Fields: 'Overview,ProductionYear',
+              Limit: 50,
+            });
+            return searchResult.Items.map((item) => ({
+              id: item.Id,
+              source: 'emby',
+              source_name: 'Emby',
+              title: item.Name,
+              poster: client.getImageUrl(item.Id, 'Primary'),
+              episodes: [],
+              episodes_titles: [],
+              year: item.ProductionYear?.toString() || '',
+              desc: item.Overview || '',
+              type_name: item.Type === 'Movie' ? '电影' : '电视剧',
+              douban_id: 0,
+            }));
+          } catch (error) {
+            console.error('[Search] 搜索 Emby 失败:', error);
+            return [];
+          }
         })(),
         new Promise<any[]>((_, reject) =>
           setTimeout(() => reject(new Error('Emby timeout')), 20000)
         ),
       ]).catch((error) => {
-        console.error('[Search] 搜索 Emby 失败:', error);
+        console.error('[Search] 搜索 Emby 超时:', error);
         return [];
       })
     : Promise.resolve([]);
@@ -91,51 +96,56 @@ export async function GET(request: NextRequest) {
   const openlistPromise = hasOpenList
     ? Promise.race([
         (async () => {
-          const { getCachedMetaInfo, setCachedMetaInfo } = await import('@/lib/openlist-cache');
-          const { getTMDBImageUrl } = await import('@/lib/tmdb.search');
-          const { db } = await import('@/lib/db');
+          try {
+            const { getCachedMetaInfo, setCachedMetaInfo } = await import('@/lib/openlist-cache');
+            const { getTMDBImageUrl } = await import('@/lib/tmdb.search');
+            const { db } = await import('@/lib/db');
 
-          const rootPath = config.OpenListConfig!.RootPath || '/';
-          let metaInfo = getCachedMetaInfo(rootPath);
+            const rootPath = config.OpenListConfig!.RootPath || '/';
+            let metaInfo = getCachedMetaInfo(rootPath);
 
-          if (!metaInfo) {
-            const metainfoJson = await db.getGlobalValue('video.metainfo');
-            if (metainfoJson) {
-              metaInfo = JSON.parse(metainfoJson);
-              if (metaInfo) {
-                setCachedMetaInfo(rootPath, metaInfo);
+            if (!metaInfo) {
+              const metainfoJson = await db.getGlobalValue('video.metainfo');
+              if (metainfoJson) {
+                metaInfo = JSON.parse(metainfoJson);
+                if (metaInfo) {
+                  setCachedMetaInfo(rootPath, metaInfo);
+                }
               }
             }
-          }
 
-          if (metaInfo && metaInfo.folders) {
-            return Object.entries(metaInfo.folders)
-              .filter(([folderName, info]: [string, any]) => {
-                const matchFolder = folderName.toLowerCase().includes(query.toLowerCase());
-                const matchTitle = info.title.toLowerCase().includes(query.toLowerCase());
-                return matchFolder || matchTitle;
-              })
-              .map(([folderName, info]: [string, any]) => ({
-                id: folderName,
-                source: 'openlist',
-                source_name: '私人影库',
-                title: info.title,
-                poster: getTMDBImageUrl(info.poster_path),
-                episodes: [],
-                episodes_titles: [],
-                year: info.release_date.split('-')[0] || '',
-                desc: info.overview,
-                type_name: info.media_type === 'movie' ? '电影' : '电视剧',
-                douban_id: 0,
-              }));
+            if (metaInfo && metaInfo.folders) {
+              return Object.entries(metaInfo.folders)
+                .filter(([folderName, info]: [string, any]) => {
+                  const matchFolder = folderName.toLowerCase().includes(query.toLowerCase());
+                  const matchTitle = info.title.toLowerCase().includes(query.toLowerCase());
+                  return matchFolder || matchTitle;
+                })
+                .map(([folderName, info]: [string, any]) => ({
+                  id: folderName,
+                  source: 'openlist',
+                  source_name: '私人影库',
+                  title: info.title,
+                  poster: getTMDBImageUrl(info.poster_path),
+                  episodes: [],
+                  episodes_titles: [],
+                  year: info.release_date.split('-')[0] || '',
+                  desc: info.overview,
+                  type_name: info.media_type === 'movie' ? '电影' : '电视剧',
+                  douban_id: 0,
+                }));
+            }
+            return [];
+          } catch (error) {
+            console.error('[Search] 搜索 OpenList 失败:', error);
+            return [];
           }
-          return [];
         })(),
         new Promise<any[]>((_, reject) =>
           setTimeout(() => reject(new Error('OpenList timeout')), 20000)
         ),
       ]).catch((error) => {
-        console.error('[Search] 搜索 OpenList 失败:', error);
+        console.error('[Search] 搜索 OpenList 超时:', error);
         return [];
       })
     : Promise.resolve([]);

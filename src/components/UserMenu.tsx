@@ -1264,14 +1264,13 @@ export const UserMenu: React.FC = () => {
               )}
             </div>
 
-            {/* 使用设置 */}
             <div className='border border-gray-200 dark:border-gray-700 rounded-lg overflow-visible'>
               <button
                 onClick={() => setIsUsageSectionOpen(!isUsageSectionOpen)}
                 className='w-full px-3 py-2.5 md:px-4 md:py-3 bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-750 transition-colors flex items-center justify-between'
               >
                 <h3 className='text-base font-semibold text-gray-800 dark:text-gray-200'>
-                  使用设置
+                  通用设置
                 </h3>
                 {isUsageSectionOpen ? (
                   <ChevronUp className='w-5 h-5 text-gray-600 dark:text-gray-400' />

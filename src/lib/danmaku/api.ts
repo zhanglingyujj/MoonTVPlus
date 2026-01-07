@@ -263,10 +263,13 @@ export function loadDanmakuSettings(): DanmakuSettings {
 
   try {
     const saved = localStorage.getItem('danmaku_settings');
+    let settings = DEFAULT_DANMAKU_SETTINGS;
+
     if (saved) {
-      const settings = JSON.parse(saved) as DanmakuSettings;
-      return { ...DEFAULT_DANMAKU_SETTINGS, ...settings };
+      settings = { ...DEFAULT_DANMAKU_SETTINGS, ...JSON.parse(saved) };
     }
+
+    return settings;
   } catch (error) {
     console.error('读取弹幕设置失败:', error);
   }
@@ -281,6 +284,31 @@ export function saveDanmakuSettings(settings: DanmakuSettings): void {
     localStorage.setItem('danmaku_settings', JSON.stringify(settings));
   } catch (error) {
     console.error('保存弹幕设置失败:', error);
+  }
+}
+
+// 保存弹幕显示状态到 localStorage（独立的 key）
+export function saveDanmakuDisplayState(enabled: boolean): void {
+  if (typeof window === 'undefined') return;
+
+  try {
+    localStorage.setItem('danmaku_display_enabled', String(enabled));
+  } catch (error) {
+    console.error('保存弹幕显示状态失败:', error);
+  }
+}
+
+// 读取弹幕显示状态
+export function loadDanmakuDisplayState(): boolean | null {
+  if (typeof window === 'undefined') return null;
+
+  try {
+    const saved = localStorage.getItem('danmaku_display_enabled');
+    if (saved === null) return null;
+    return saved === 'true';
+  } catch (error) {
+    console.error('读取弹幕显示状态失败:', error);
+    return null;
   }
 }
 

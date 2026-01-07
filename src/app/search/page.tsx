@@ -212,14 +212,23 @@ function SearchPageClient() {
     return order === 'asc' ? aNum - bNum : bNum - aNum;
   };
 
+  // 规范化标题用于聚合（去除特殊符号、括号、空格和全角空格）
+  const normalizeTitle = (title: string) => {
+    return title
+      .replace(/[\s\u3000]/g, '') // 去除空格和全角空格
+      .replace(/[()（）[\]【】{}「」『』<>《》]/g, '') // 去除各种括号
+      .replace(/[^\w\u4e00-\u9fa5]/g, ''); // 去除特殊符号，保留字母、数字、下划线和中文
+  };
+
   // 聚合后的结果（按标题和年份分组）
   const aggregatedResults = useMemo(() => {
     const map = new Map<string, SearchResult[]>();
     const keyOrder: string[] = []; // 记录键出现的顺序
 
     searchResults.forEach((item) => {
-      // 使用 title + year + type 作为键，year 必然存在，但依然兜底 'unknown'
-      const key = `${item.title.replaceAll(' ', '')}-${item.year || 'unknown'
+      // 使用规范化后的 title + year + type 作为键，year 必然存在，但依然兜底 'unknown'
+      const normalizedTitle = normalizeTitle(item.title);
+      const key = `${normalizedTitle}-${item.year || 'unknown'
         }-${item.episodes.length === 1 ? 'movie' : 'tv'}`;
       const arr = map.get(key) || [];
 
@@ -282,7 +291,22 @@ function SearchPageClient() {
     const sourceOptions: { label: string; value: string }[] = [
       { label: '全部来源', value: 'all' },
       ...Array.from(sourcesSet.entries())
-        .sort((a, b) => a[1].localeCompare(b[1]))
+        .sort((a, b) => {
+          // 优先排序：emby 和 openlist 置于最前
+          const prioritySources = ['emby', 'openlist'];
+          const aIsPriority = prioritySources.includes(a[0]);
+          const bIsPriority = prioritySources.includes(b[0]);
+
+          if (aIsPriority && !bIsPriority) return -1;
+          if (!aIsPriority && bIsPriority) return 1;
+          if (aIsPriority && bIsPriority) {
+            // 两者都是优先源，按照 prioritySources 数组顺序排列
+            return prioritySources.indexOf(a[0]) - prioritySources.indexOf(b[0]);
+          }
+
+          // 其他来源按字母顺序排列
+          return a[1].localeCompare(b[1]);
+        })
         .map(([value, label]) => ({ label, value })),
     ];
 

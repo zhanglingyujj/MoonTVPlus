@@ -3,7 +3,7 @@
 'use client';
 
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useMemo } from 'react';
 
 import CapsuleSwitch from '@/components/CapsuleSwitch';
 import PageLayout from '@/components/PageLayout';
@@ -34,6 +34,15 @@ interface EmbyView {
 export default function PrivateLibraryPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
+
+  // 获取运行时配置
+  const runtimeConfig = useMemo(() => {
+    if (typeof window !== 'undefined' && (window as any).RUNTIME_CONFIG) {
+      return (window as any).RUNTIME_CONFIG;
+    }
+    return { OPENLIST_ENABLED: false, EMBY_ENABLED: false };
+  }, []);
+
   const [source, setSource] = useState<LibrarySource>('openlist');
   const [videos, setVideos] = useState<Video[]>([]);
   const [loading, setLoading] = useState(true);
@@ -53,12 +62,15 @@ export default function PrivateLibraryPage() {
   const scrollLeftRef = useRef(0);
   const isInitializedRef = useRef(false);
 
-  // 从URL初始化状态
+  // 从URL初始化状态，并检查配置自动跳转
   useEffect(() => {
     const urlSource = searchParams.get('source') as LibrarySource;
     const urlView = searchParams.get('view');
 
-    if (urlSource && (urlSource === 'openlist' || urlSource === 'emby')) {
+    // 如果 OpenList 未配置但 Emby 已配置，强制使用 Emby
+    if (!runtimeConfig.OPENLIST_ENABLED && runtimeConfig.EMBY_ENABLED) {
+      setSource('emby');
+    } else if (urlSource && (urlSource === 'openlist' || urlSource === 'emby')) {
       setSource(urlSource);
     }
 
@@ -67,7 +79,7 @@ export default function PrivateLibraryPage() {
     }
 
     isInitializedRef.current = true;
-  }, [searchParams]);
+  }, [searchParams, runtimeConfig]);
 
   // 更新URL参数
   useEffect(() => {
@@ -183,6 +195,18 @@ export default function PrivateLibraryPage() {
         return;
       }
 
+      // 如果选择了 openlist 但未配置，不发起请求
+      if (source === 'openlist' && !runtimeConfig.OPENLIST_ENABLED) {
+        setLoading(false);
+        return;
+      }
+
+      // 如果选择了 emby 但未配置，不发起请求
+      if (source === 'emby' && !runtimeConfig.EMBY_ENABLED) {
+        setLoading(false);
+        return;
+      }
+
       isFetchingRef.current = true;
 
       try {
@@ -242,7 +266,7 @@ export default function PrivateLibraryPage() {
     };
 
     fetchVideos();
-  }, [source, page, selectedView]);
+  }, [source, page, selectedView, runtimeConfig]);
 
   const handleVideoClick = (video: Video) => {
     // 跳转到播放页面

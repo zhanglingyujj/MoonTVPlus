@@ -11,8 +11,28 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
 	{
+    version: '206.2.0',
+    date: '2026-01-07',
+	added: [
+		"轮播图数据源增加豆瓣",
+		"弹幕开关状态持久化",
+		"play页面新增复制视频链接"
+    ],
+    changed: [
+		"搜索聚合规则增强",
+		"emby剧集弹幕匹配优化",
+		"搜索来源筛选提升私人影库权重",
+		"私人影库未配置openlist时自动跳转emby",
+		"优化弹幕加载逻辑"
+    ],
+    fixed: [
+		"修复私人影库报错导致搜索无结果",
+		"修复无法保存更多推荐数据源"
+	]
+	},
+	{
     version: '206.1.0',
-    date: '2026-01-04',
+    date: '2026-01-05',
 	added: [
 		"新增手动上传弹幕功能"
     ],
