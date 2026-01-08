@@ -11,6 +11,18 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
 	{
+    version: '206.2.1',
+    date: '2026-01-08',
+	added: [
+		
+    ],
+    changed: [
+		
+    ],
+    fixed: [
+		"修正豆瓣图片源"
+	]
+	},{
     version: '206.2.0',
     date: '2026-01-07',
 	added: [
