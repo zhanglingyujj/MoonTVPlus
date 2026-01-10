@@ -7,51 +7,18 @@ import { getConfig } from '@/lib/config';
 
 export const runtime = 'nodejs';
 
-// 内存缓存 Emby 配置，避免每次请求都读取配置
-let cachedEmbyConfig: {
-  serverURL: string;
-  apiKey: string;
-  timestamp: number;
-} | null = null;
-
-const CACHE_TTL = 5 * 60 * 1000; // 5分钟缓存
-
 /**
- * 获取缓存的 Emby 配置
+ * 获取 Emby 客户端
  */
-async function getCachedEmbyConfig() {
-  const now = Date.now();
-
-  // 如果缓存存在且未过期，直接返回
-  if (cachedEmbyConfig && (now - cachedEmbyConfig.timestamp) < CACHE_TTL) {
-    return cachedEmbyConfig;
-  }
-
-  // 否则重新获取配置
+async function getEmbyClient(embyKey?: string) {
   const config = await getConfig();
-  const embyConfig = config.EmbyConfig;
 
-  if (
-    !embyConfig ||
-    !embyConfig.Enabled ||
-    !embyConfig.ServerURL
-  ) {
+  if (!config.EmbyConfig?.Sources || config.EmbyConfig.Sources.length === 0) {
     throw new Error('Emby 未配置或未启用');
   }
 
-  const apiKey = embyConfig.ApiKey || embyConfig.AuthToken;
-  if (!apiKey) {
-    throw new Error('Emby 认证信息缺失');
-  }
-
-  // 更新缓存
-  cachedEmbyConfig = {
-    serverURL: embyConfig.ServerURL,
-    apiKey,
-    timestamp: now,
-  };
-
-  return cachedEmbyConfig;
+  const { embyManager } = await import('@/lib/emby-manager');
+  return await embyManager.getClient(embyKey);
 }
 
 /**
@@ -84,16 +51,17 @@ export async function GET(
     }
 
     const itemId = searchParams.get('itemId');
+    const embyKey = searchParams.get('embyKey') || undefined;
 
     if (!itemId) {
       return NextResponse.json({ error: '缺少 itemId 参数' }, { status: 400 });
     }
 
-    // 使用缓存的配置
-    const embyConfig = await getCachedEmbyConfig();
+    // 获取 Emby 客户端
+    let client = await getEmbyClient(embyKey);
 
-    // 构建 Emby 原始播放链接
-    const embyStreamUrl = `${embyConfig.serverURL}/Videos/${itemId}/stream?Static=true&api_key=${embyConfig.apiKey}`;
+    // 构建 Emby 原始播放链接（强制获取直接URL，避免代理循环）
+    let embyStreamUrl = await client.getStreamUrl(itemId, true, true);
 
     // 构建请求头，转发 Range 请求
     const requestHeaders: HeadersInit = {};
@@ -103,9 +71,21 @@ export async function GET(
     }
 
     // 流式代理视频内容
-    const videoResponse = await fetch(embyStreamUrl, {
+    let videoResponse = await fetch(embyStreamUrl, {
       headers: requestHeaders,
     });
+
+    // 如果返回 401，尝试重新认证并重试
+    if (videoResponse.status === 401) {
+      console.log('[Emby Play] 收到 401 错误，尝试重新认证');
+      const { embyManager } = await import('@/lib/emby-manager');
+      embyManager.clearCache();
+      client = await getEmbyClient(embyKey);
+      embyStreamUrl = await client.getStreamUrl(itemId, true, true);
+      videoResponse = await fetch(embyStreamUrl, {
+        headers: requestHeaders,
+      });
+    }
 
     if (!videoResponse.ok) {
       console.error('[Emby Play] 获取视频流失败:', {

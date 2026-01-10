@@ -47,10 +47,9 @@ export async function GET(
 
   try {
     const config = await getConfig();
-    const embyConfig = config.EmbyConfig;
 
-    // 验证 Emby 配置
-    if (!embyConfig?.Enabled || !embyConfig.ServerURL) {
+    // 验证 Emby 配置（多源）
+    if (!config.EmbyConfig?.Sources || config.EmbyConfig.Sources.length === 0) {
       return NextResponse.json({
         code: 0,
         msg: 'Emby 未配置或未启用',
@@ -62,31 +61,18 @@ export async function GET(
       });
     }
 
-    const client = new EmbyClient(embyConfig);
+    // 获取 embyKey 参数
+    const embyKey = searchParams.get('embyKey') || undefined;
 
-    // 如果没有 UserId，需要先认证
-    if (!embyConfig.UserId && embyConfig.Username && embyConfig.Password) {
-      const authResult = await client.authenticate(embyConfig.Username, embyConfig.Password);
-      embyConfig.UserId = authResult.User.Id;
-    }
-
-    if (!embyConfig.UserId) {
-      return NextResponse.json({
-        code: 0,
-        msg: 'Emby 认证失败',
-        page: 1,
-        pagecount: 0,
-        limit: 0,
-        total: 0,
-        list: [],
-      });
-    }
+    // 使用 EmbyManager 获取客户端
+    const { embyManager } = await import('@/lib/emby-manager');
+    const client = await embyManager.getClient(embyKey);
 
     // 路由处理
     if (wd) {
       // 搜索模式
       if (ac === 'detail') {
-        return await handleDetailBySearch(client, wd, requestToken, request);
+        return await handleDetailBySearch(client, wd, requestToken, embyKey, request);
       }
       return await handleSearch(client, wd);
     } else if (ids || ac === 'detail') {
@@ -102,7 +88,7 @@ export async function GET(
           list: [],
         });
       }
-      return await handleDetail(client, ids, requestToken, request);
+      return await handleDetail(client, ids, requestToken, embyKey, request);
     } else {
       // 列表模式
       return await handleSearch(client, '');
@@ -161,6 +147,7 @@ async function handleDetailBySearch(
   client: EmbyClient,
   query: string,
   token: string,
+  embyKey: string | undefined,
   request: NextRequest
 ) {
   const result = await client.getItems({
@@ -183,7 +170,7 @@ async function handleDetailBySearch(
     });
   }
 
-  return await handleDetail(client, result.Items[0].Id, token, request);
+  return await handleDetail(client, result.Items[0].Id, token, embyKey, request);
 }
 
 /**
@@ -193,6 +180,7 @@ async function handleDetail(
   client: EmbyClient,
   itemId: string,
   token: string,
+  embyKey: string | undefined,
   request: NextRequest
 ) {
   const item = await client.getItem(itemId);
@@ -203,11 +191,12 @@ async function handleDetail(
     (host?.includes('localhost') || host?.includes('127.0.0.1') ? 'http' : 'https');
   const baseUrl = process.env.SITE_BASE || `${proto}://${host}`;
 
+  const embyKeyParam = embyKey ? `&embyKey=${embyKey}` : '';
   let vodPlayUrl = '';
 
   if (item.Type === 'Movie') {
     // 电影：单个播放链接（使用代理，添加 .mp4 扩展名）
-    const proxyUrl = `${baseUrl}/api/emby/play/${encodeURIComponent(token)}/video.mp4?itemId=${item.Id}`;
+    const proxyUrl = `${baseUrl}/api/emby/play/${encodeURIComponent(token)}/video.mp4?itemId=${item.Id}${embyKeyParam}`;
     vodPlayUrl = `正片$${proxyUrl}`;
   } else if (item.Type === 'Series') {
     // 剧集：获取所有集
@@ -222,7 +211,7 @@ async function handleDetail(
       })
       .map((ep) => {
         const title = `第${ep.IndexNumber}集`;
-        const proxyUrl = `${baseUrl}/api/emby/play/${encodeURIComponent(token)}/video.mp4?itemId=${ep.Id}`;
+        const proxyUrl = `${baseUrl}/api/emby/play/${encodeURIComponent(token)}/video.mp4?itemId=${ep.Id}${embyKeyParam}`;
         return `${title}$${proxyUrl}`;
       });
 

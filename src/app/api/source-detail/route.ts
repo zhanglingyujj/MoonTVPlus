@@ -27,18 +27,29 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: '缺少必要参数' }, { status: 400 });
   }
 
-  // 特殊处理 emby 源
-  if (sourceCode === 'emby') {
+  // 特殊处理 emby 源（支持多源）
+  if (sourceCode === 'emby' || sourceCode.startsWith('emby_')) {
     try {
       const config = await getConfig();
-      const embyConfig = config.EmbyConfig;
 
-      if (!embyConfig || !embyConfig.Enabled || !embyConfig.ServerURL) {
+      // 检查是否有启用的 Emby 源
+      if (!config.EmbyConfig?.Sources || config.EmbyConfig.Sources.length === 0) {
         throw new Error('Emby 未配置或未启用');
       }
 
-      const { EmbyClient } = await import('@/lib/emby.client');
-      const client = new EmbyClient(embyConfig);
+      // 解析 embyKey
+      let embyKey: string | undefined;
+      if (sourceCode.startsWith('emby_')) {
+        embyKey = sourceCode.substring(5); // 'emby_'.length = 5
+      }
+
+      // 使用 EmbyManager 获取客户端和配置
+      const { embyManager } = await import('@/lib/emby-manager');
+      const sources = await embyManager.getEnabledSources();
+      const sourceConfig = sources.find(s => s.key === embyKey);
+      const sourceName = sourceConfig?.name || 'Emby';
+
+      const client = await embyManager.getClient(embyKey);
 
       // 获取媒体详情
       const item = await client.getItem(id);
@@ -49,15 +60,15 @@ export async function GET(request: NextRequest) {
         const subtitles = client.getSubtitles(item);
 
         const result = {
-          source: 'emby',
-          source_name: 'Emby',
+          source: sourceCode, // 保持与请求一致（emby 或 emby_key）
+          source_name: sourceName,
           id: item.Id,
           title: item.Name,
           poster: client.getImageUrl(item.Id, 'Primary'),
           year: item.ProductionYear?.toString() || '',
           douban_id: 0,
           desc: item.Overview || '',
-          episodes: [client.getStreamUrl(item.Id)],
+          episodes: [await client.getStreamUrl(item.Id)],
           episodes_titles: [item.Name],
           subtitles: subtitles.length > 0 ? [subtitles] : [],
           proxyMode: false,
@@ -83,15 +94,15 @@ export async function GET(request: NextRequest) {
         });
 
         const result = {
-          source: 'emby',
-          source_name: 'Emby',
+          source: sourceCode, // 保持与请求一致（emby 或 emby_key）
+          source_name: sourceName,
           id: item.Id,
           title: item.Name,
           poster: client.getImageUrl(item.Id, 'Primary'),
           year: item.ProductionYear?.toString() || '',
           douban_id: 0,
           desc: item.Overview || '',
-          episodes: allEpisodes.map((ep) => client.getStreamUrl(ep.Id)),
+          episodes: await Promise.all(allEpisodes.map((ep) => client.getStreamUrl(ep.Id))),
           episodes_titles: allEpisodes.map((ep) => {
             const seasonNum = ep.ParentIndexNumber || 1;
             const episodeNum = ep.IndexNumber || 1;

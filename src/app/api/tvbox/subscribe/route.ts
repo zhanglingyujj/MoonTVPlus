@@ -71,12 +71,9 @@ export async function GET(request: NextRequest) {
       config.OpenListConfig?.Password
     );
 
-    // 检查是否配置了 Emby
-    const hasEmby = !!(
-      config.EmbyConfig?.Enabled &&
-      config.EmbyConfig?.ServerURL &&
-      (config.EmbyConfig?.ApiKey || (config.EmbyConfig?.Username && config.EmbyConfig?.Password))
-    );
+    // 获取所有启用的 Emby 源
+    const { embyManager } = await import('@/lib/emby-manager');
+    const embySources = await embyManager.getEnabledSources();
 
     // 构建 OpenList 站点配置
     const openlistSites = hasOpenList ? [{
@@ -90,17 +87,17 @@ export async function GET(request: NextRequest) {
       ext: '',
     }] : [];
 
-    // 构建 Emby 站点配置
-    const embySites = hasEmby ? [{
-      key: 'emby',
-      name: 'Emby媒体库',
+    // 构建 Emby 站点配置（为每个启用的Emby源生成独立站点）
+    const embySites = embySources.map(source => ({
+      key: `emby_${source.key}`,
+      name: source.name || 'Emby媒体库',
       type: 1,
-      api: `${baseUrl}/api/emby/cms-proxy/${encodeURIComponent(subscribeToken)}`,
+      api: `${baseUrl}/api/emby/cms-proxy/${encodeURIComponent(subscribeToken)}?embyKey=${source.key}`,
       searchable: 1,
       quickSearch: 1,
       filterable: 1,
       ext: '',
-    }] : [];
+    }));
 
     // 构建TVBOX订阅数据
     const tvboxSubscription = {

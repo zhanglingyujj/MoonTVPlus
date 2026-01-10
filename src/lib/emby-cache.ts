@@ -15,8 +15,9 @@ const EMBY_VIEWS_CACHE_KEY = 'emby:views';
 /**
  * 生成 Emby 列表缓存键
  */
-function makeListCacheKey(page: number, pageSize: number, parentId?: string): string {
-  return parentId ? `emby:list:${page}:${pageSize}:${parentId}` : `emby:list:${page}:${pageSize}`;
+function makeListCacheKey(page: number, pageSize: number, parentId?: string, embyKey?: string): string {
+  const keyPrefix = embyKey ? `emby:${embyKey}` : 'emby';
+  return parentId ? `${keyPrefix}:list:${page}:${pageSize}:${parentId}` : `${keyPrefix}:list:${page}:${pageSize}`;
 }
 
 /**
@@ -25,9 +26,10 @@ function makeListCacheKey(page: number, pageSize: number, parentId?: string): st
 export function getCachedEmbyList(
   page: number,
   pageSize: number,
-  parentId?: string
+  parentId?: string,
+  embyKey?: string
 ): any | null {
-  const key = makeListCacheKey(page, pageSize, parentId);
+  const key = makeListCacheKey(page, pageSize, parentId, embyKey);
   const entry = EMBY_CACHE.get(key);
   if (!entry) return null;
 
@@ -47,10 +49,11 @@ export function setCachedEmbyList(
   page: number,
   pageSize: number,
   data: any,
-  parentId?: string
+  parentId?: string,
+  embyKey?: string
 ): void {
   const now = Date.now();
-  const key = makeListCacheKey(page, pageSize, parentId);
+  const key = makeListCacheKey(page, pageSize, parentId, embyKey);
   EMBY_CACHE.set(key, {
     expiresAt: now + EMBY_CACHE_TTL_MS,
     data,
@@ -69,13 +72,14 @@ export function clearEmbyCache(): { cleared: number } {
 /**
  * 获取缓存的 Emby 媒体库列表
  */
-export function getCachedEmbyViews(): any | null {
-  const entry = EMBY_CACHE.get(EMBY_VIEWS_CACHE_KEY);
+export function getCachedEmbyViews(embyKey: string = 'default'): any | null {
+  const cacheKey = `${EMBY_VIEWS_CACHE_KEY}:${embyKey}`;
+  const entry = EMBY_CACHE.get(cacheKey);
   if (!entry) return null;
 
   // 检查是否过期
   if (entry.expiresAt <= Date.now()) {
-    EMBY_CACHE.delete(EMBY_VIEWS_CACHE_KEY);
+    EMBY_CACHE.delete(cacheKey);
     return null;
   }
 
@@ -85,9 +89,10 @@ export function getCachedEmbyViews(): any | null {
 /**
  * 设置缓存的 Emby 媒体库列表
  */
-export function setCachedEmbyViews(data: any): void {
+export function setCachedEmbyViews(embyKey: string = 'default', data: any): void {
   const now = Date.now();
-  EMBY_CACHE.set(EMBY_VIEWS_CACHE_KEY, {
+  const cacheKey = `${EMBY_VIEWS_CACHE_KEY}:${embyKey}`;
+  EMBY_CACHE.set(cacheKey, {
     expiresAt: now + EMBY_VIEWS_CACHE_TTL_MS,
     data,
   });

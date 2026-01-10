@@ -58,6 +58,7 @@ function HomeClient() {
   const [showHttpWarning, setShowHttpWarning] = useState(true);
   const [showAIChat, setShowAIChat] = useState(false);
   const [aiEnabled, setAiEnabled] = useState(false);
+  const [aiDefaultMessageNoVideo, setAiDefaultMessageNoVideo] = useState('你好！我是MoonTVPlus的AI影视助手。想看什么电影或剧集？需要推荐吗？');
   const [sourceSearchEnabled, setSourceSearchEnabled] = useState(true);
 
   // 加载首页模块配置
@@ -102,6 +103,12 @@ function HomeClient() {
         (window as any).RUNTIME_CONFIG?.AI_ENABLED &&
         (window as any).RUNTIME_CONFIG?.AI_ENABLE_HOMEPAGE_ENTRY;
       setAiEnabled(enabled);
+
+      // 加载AI默认消息配置
+      const defaultMsg = (window as any).RUNTIME_CONFIG?.AI_DEFAULT_MESSAGE_NO_VIDEO;
+      if (defaultMsg) {
+        setAiDefaultMessageNoVideo(defaultMsg);
+      }
     }
   }, []);
 
@@ -591,7 +598,7 @@ function HomeClient() {
         <AIChatPanel
           isOpen={showAIChat}
           onClose={() => setShowAIChat(false)}
-          welcomeMessage='你好！我是MoonTVPlus的AI影视助手。想看什么电影或剧集？需要推荐吗？'
+          welcomeMessage={aiDefaultMessageNoVideo}
         />
       )}
 

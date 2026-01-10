@@ -44,53 +44,57 @@ export async function GET(request: NextRequest) {
     config.OpenListConfig?.Password
   );
 
-  // 检查是否配置了 Emby
-  const hasEmby = !!(
-    config.EmbyConfig?.Enabled &&
-    config.EmbyConfig?.ServerURL &&
-    config.EmbyConfig?.UserId
-  );
+  // 获取所有启用的 Emby 源
+  const { embyManager } = await import('@/lib/emby-manager');
+  const embySourcesMap = await embyManager.getAllClients();
+  const embySources = Array.from(embySourcesMap.values());
 
-  // 搜索 Emby（如果配置了）- 异步带超时
-  const embyPromise = hasEmby
-    ? Promise.race([
-        (async () => {
-          try {
-            const { EmbyClient } = await import('@/lib/emby.client');
-            const client = new EmbyClient(config.EmbyConfig!);
-            const searchResult = await client.getItems({
-              searchTerm: query,
-              IncludeItemTypes: 'Movie,Series',
-              Recursive: true,
-              Fields: 'Overview,ProductionYear',
-              Limit: 50,
-            });
-            return searchResult.Items.map((item) => ({
-              id: item.Id,
-              source: 'emby',
-              source_name: 'Emby',
-              title: item.Name,
-              poster: client.getImageUrl(item.Id, 'Primary'),
-              episodes: [],
-              episodes_titles: [],
-              year: item.ProductionYear?.toString() || '',
-              desc: item.Overview || '',
-              type_name: item.Type === 'Movie' ? '电影' : '电视剧',
-              douban_id: 0,
-            }));
-          } catch (error) {
-            console.error('[Search] 搜索 Emby 失败:', error);
-            return [];
-          }
-        })(),
-        new Promise<any[]>((_, reject) =>
-          setTimeout(() => reject(new Error('Emby timeout')), 20000)
-        ),
-      ]).catch((error) => {
-        console.error('[Search] 搜索 Emby 超时:', error);
-        return [];
-      })
-    : Promise.resolve([]);
+  console.log('[Search] Emby sources count:', embySources.length);
+  console.log('[Search] Emby sources:', embySources.map(s => ({ key: s.config.key, name: s.config.name })));
+
+  // 为每个 Emby 源创建搜索 Promise（全部并发，无限制）
+  const embyPromises = embySources.map(({ client, config: embyConfig }) =>
+    Promise.race([
+      (async () => {
+        try {
+          const searchResult = await client.getItems({
+            searchTerm: query,
+            IncludeItemTypes: 'Movie,Series',
+            Recursive: true,
+            Fields: 'Overview,ProductionYear',
+            Limit: 50,
+          });
+
+          // 如果只有一个Emby源，保持旧格式（向后兼容）
+          const sourceValue = embySources.length === 1 ? 'emby' : `emby_${embyConfig.key}`;
+          const sourceName = embySources.length === 1 ? 'Emby' : embyConfig.name;
+
+          return searchResult.Items.map((item) => ({
+            id: item.Id,
+            source: sourceValue,
+            source_name: sourceName,
+            title: item.Name,
+            poster: client.getImageUrl(item.Id, 'Primary'),
+            episodes: [],
+            episodes_titles: [],
+            year: item.ProductionYear?.toString() || '',
+            desc: item.Overview || '',
+            type_name: item.Type === 'Movie' ? '电影' : '电视剧',
+            douban_id: 0,
+          }));
+        } catch (error) {
+          console.error(`[Search] 搜索 ${embyConfig.name} 失败:`, error);
+          return [];
+        }
+      })(),
+      new Promise<any[]>((_, reject) =>
+        setTimeout(() => reject(new Error(`${embyConfig.name} timeout`)), 20000)
+      ),
+    ]).catch((error) => {
+      console.error(`[Search] 搜索 ${embyConfig.name} 超时:`, error);
+      return [];
+    })
+  );
 
   // 搜索 OpenList（如果配置了）- 异步带超时
   const openlistPromise = hasOpenList
@@ -164,12 +168,24 @@ export async function GET(request: NextRequest) {
   );
 
   try {
-    const [embyResults, openlistResults, ...apiResults] = await Promise.all([
-      embyPromise,
+    const allResults = await Promise.all([
       openlistPromise,
+      ...embyPromises,
       ...searchPromises,
     ]);
-    let flattenedResults = [...embyResults, ...openlistResults, ...apiResults.flat()];
+
+    // 分离结果：第一个是 openlist，接下来是 emby 结果，最后是 api 结果
+    // 添加安全检查，确保即使某个结果处理出错也不影响其他结果
+    const openlistResults = Array.isArray(allResults[0]) ? allResults[0] : [];
+    const embyResultsArray = allResults.slice(1, 1 + embyPromises.length);
+    const apiResults = allResults.slice(1 + embyPromises.length);
+
+    // 合并所有 Emby 结果，添加安全检查
+    const embyResults = embyResultsArray.filter(Array.isArray).flat();
+    const apiResultsFlat = apiResults.filter(Array.isArray).flat();
+
+    let flattenedResults = [...openlistResults, ...embyResults, ...apiResultsFlat];
+
     if (!config.SiteConfig.DisableYellowFilter) {
       flattenedResults = flattenedResults.filter((result) => {
         const typeName = result.type_name || '';
@@ -195,6 +211,7 @@ export async function GET(request: NextRequest) {
       }
     );
   } catch (error) {
+    console.error('[Search] 搜索结果处理失败:', error);
     return NextResponse.json({ error: '搜索失败' }, { status: 500 });
   }
 }

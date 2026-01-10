@@ -4,8 +4,8 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { getTMDBImageUrl, getGenreNames, type TMDBItem } from '@/lib/tmdb.client';
+import { processImageUrl } from '@/lib/utils';
 import { ChevronLeft, ChevronRight, Play } from 'lucide-react';
-import { processImageUrl, processVideoUrl } from '@/lib/utils';
 
 interface BannerCarouselProps {
   autoPlayInterval?: number; // 自动播放间隔（毫秒）
@@ -49,14 +49,9 @@ export default function BannerCarousel({ autoPlayInterval = 5000 }: BannerCarous
   // 获取图片URL（处理TX完整URL和TMDB路径）
   const getImageUrl = (path: string | null) => {
     if (!path) return '';
-    // 如果是完整URL（TX数据源或豆瓣），需要判断是否需要代理
+    // 如果是完整URL（TX数据源或豆瓣），使用processImageUrl统一处理
     if (path.startsWith('http://') || path.startsWith('https://')) {
-      // 豆瓣图片需要通过代理
-      if (path.includes('doubanio.com')) {
-        return processImageUrl(path);
-      }
-      // TX等其他完整URL直接返回
-      return path;
+      return processImageUrl(path);
     }
     // 否则使用TMDB的URL拼接
     return getTMDBImageUrl(path, 'original');
@@ -65,9 +60,9 @@ export default function BannerCarousel({ autoPlayInterval = 5000 }: BannerCarous
   // 获取视频URL（处理豆瓣视频代理）
   const getVideoUrl = (url: string | null) => {
     if (!url) return null;
-    // 豆瓣视频需要通过域名替换代理
+    // 豆瓣视频直接使用服务器代理
     if (url.includes('doubanio.com')) {
-      return processVideoUrl(url);
+      return `/api/video-proxy?url=${encodeURIComponent(url)}`;
     }
     return url;
   };

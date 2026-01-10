@@ -779,8 +779,8 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
                         }
                         className={`flex items-start gap-3 px-2 py-3 rounded-lg transition-all select-none duration-200 relative
                       ${isCurrentSource
-                            ? 'bg-green-500/10 dark:bg-green-500/20 border-green-500/30 border'
-                            : 'hover:bg-gray-200/50 dark:hover:bg-white/10 hover:scale-[1.02] cursor-pointer'
+                         ? 'bg-green-500/10 dark:bg-green-500/20 border-green-500/30 border'
+                          : 'hover:bg-gray-200/50 dark:hover:bg-white/10 hover:scale-[1.02] cursor-pointer'
                           }`.trim()}
                       >
                         {/* 封面 */}
@@ -855,7 +855,11 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
 
                           {/* 源名称和集数信息 - 垂直居中 */}
                           <div className='flex items-center justify-between'>
-                            <span className='text-xs px-2 py-1 border border-gray-500/60 rounded text-gray-700 dark:text-gray-300'>
+                            <span className={`text-xs px-2 py-1 border rounded text-gray-700 dark:text-gray-300 ${
+                              source.source === 'openlist' || source.source === 'emby' || source.source?.startsWith('emby_')
+                           ? 'border-yellow-500'
+                                : 'border-gray-500/60'
+                      }`}>
                               {source.source_name}
                             </span>
                             {source.episodes.length > 1 && (
@@ -897,7 +901,7 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
                             {/* 重新测试按钮 */}
                             {(() => {
                               // 私人影库和 Emby 不显示重新测试按钮
-                              if (source.source === 'openlist' || source.source === 'emby') {
+                              if (source.source === 'openlist' || source.source === 'emby' || source.source.startsWith('emby_')) {
                                 return null;
                               }
 
