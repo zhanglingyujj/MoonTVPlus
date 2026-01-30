@@ -10,6 +10,7 @@ import { processImageUrl } from '@/lib/utils';
 
 interface BannerCarouselProps {
   autoPlayInterval?: number; // 自动播放间隔（毫秒）
+  delayLoad?: boolean; // 是否延迟加载（等页面加载完毕后再加载）
 }
 
 // 扩展TMDBItem类型以支持TX数据源的额外字段
@@ -20,11 +21,12 @@ interface BannerItem extends TMDBItem {
   genres?: string[]; // 豆瓣数据源的类型标签
 }
 
-export default function BannerCarousel({ autoPlayInterval = 5000 }: BannerCarouselProps) {
+export default function BannerCarousel({ autoPlayInterval = 5000, delayLoad = false }: BannerCarouselProps) {
   const router = useRouter();
   const [items, setItems] = useState<BannerItem[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
+  const [shouldLoad, setShouldLoad] = useState(!delayLoad); // 是否应该开始加载数据
   const [isPaused, setIsPaused] = useState(false);
   const [skipNextAutoPlay, setSkipNextAutoPlay] = useState(false); // 跳过下一次自动播放
   const [isYouTubeAccessible, setIsYouTubeAccessible] = useState(false); // YouTube连通性（默认false，检查后再决定）
@@ -76,6 +78,22 @@ export default function BannerCarousel({ autoPlayInterval = 5000 }: BannerCarous
     }
   }, []);
 
+  // 延迟加载：等待页面加载完毕后再开始加载轮播图数据
+  useEffect(() => {
+    if (!delayLoad) return;
+
+    // 页面加载完毕后再开始加载
+    if (document.readyState === 'complete') {
+      setShouldLoad(true);
+    } else {
+      const handleLoad = () => {
+        setShouldLoad(true);
+      };
+      window.addEventListener('load', handleLoad);
+      return () => window.removeEventListener('load', handleLoad);
+    }
+  }, [delayLoad]);
+
   // 检测YouTube连通性 - 仅在启用预告片且数据源为TMDB时检测
   useEffect(() => {
     // 如果未启用预告片或数据源不是TMDB，不进行检测
@@ -110,13 +128,19 @@ export default function BannerCarousel({ autoPlayInterval = 5000 }: BannerCarous
 
   // 获取热门内容
   useEffect(() => {
+    // 如果不应该加载，直接返回
+    if (!shouldLoad) return;
+
     const fetchTrending = async () => {
       try {
-        // 先尝试从所有可能的数据源缓存中读取
+        // 先尝试从所有可能的数据源缓存中读取，找到最新的缓存
         const sources = ['TMDB', 'TX', 'Douban'];
         let cachedData = null;
         let validSource = null;
+        let cacheExpired = false;
+        let latestTimestamp = 0;
 
+        // 遍历所有数据源，找到最新的缓存
         for (const source of sources) {
           const cacheKey = getLocalStorageKey(source);
           const cached = localStorage.getItem(cacheKey);
@@ -124,13 +148,13 @@ export default function BannerCarousel({ autoPlayInterval = 5000 }: BannerCarous
           if (cached) {
             try {
               const { data, timestamp } = JSON.parse(cached);
-              const now = Date.now();
 
-              // 如果缓存未过期，使用缓存数据
-              if (now - timestamp < LOCALSTORAGE_DURATION) {
+              // 选择时间戳最新的缓存
+              if (timestamp > latestTimestamp) {
                 cachedData = data;
                 validSource = source;
-                break;
+                latestTimestamp = timestamp;
+                cacheExpired = Date.now() - timestamp > LOCALSTORAGE_DURATION;
               }
             } catch (e) {
               console.error('解析缓存数据失败:', e);
@@ -138,34 +162,35 @@ export default function BannerCarousel({ autoPlayInterval = 5000 }: BannerCarous
           }
         }
 
-        // 如果有有效的缓存，直接使用，不请求API
+        // 乐观缓存：如果有缓存（无论是否过期），先显示缓存数据
         if (cachedData) {
           setItems(cachedData);
           setDataSource(validSource || ''); // 设置数据源
           setIsLoading(false);
-          return;
         }
 
-        // 没有缓存或缓存过期，从 API 获取数据
-        const response = await fetch('/api/tmdb/trending');
-        const result = await response.json();
+        // 如果缓存过期或没有缓存，后台更新数据
+        if (!cachedData || cacheExpired) {
+          const response = await fetch('/api/tmdb/trending');
+          const result = await response.json();
 
-        if (result.code === 200 && result.list.length > 0) {
-          const dataSource = result.source || 'TMDB'; // 获取数据源标识
-          const cacheKey = getLocalStorageKey(dataSource);
+          if (result.code === 200 && result.list.length > 0) {
+            const newDataSource = result.source || 'TMDB'; // 获取数据源标识
+            const cacheKey = getLocalStorageKey(newDataSource);
 
-          setItems(result.list);
-          setDataSource(dataSource); // 设置数据源
+            setItems(result.list);
+            setDataSource(newDataSource); // 设置数据源
 
-          // 保存到 localStorage（使用数据源特定的key）
-          try {
-            localStorage.setItem(cacheKey, JSON.stringify({
-              data: result.list,
-              timestamp: Date.now()
-            }));
-          } catch (e) {
-            // localStorage 可能已满，忽略错误
-            console.error('保存到 localStorage 失败:', e);
+            // 保存到 localStorage（使用数据源特定的key）
+            try {
+              localStorage.setItem(cacheKey, JSON.stringify({
+                data: result.list,
+                timestamp: Date.now()
+              }));
+            } catch (e) {
+              // localStorage 可能已满，忽略错误
+              console.error('保存到 localStorage 失败:', e);
+            }
           }
         }
       } catch (error) {
@@ -176,7 +201,7 @@ export default function BannerCarousel({ autoPlayInterval = 5000 }: BannerCarous
     };
 
     fetchTrending();
-  }, []);
+  }, [shouldLoad]);
 
   // 自动播放
   useEffect(() => {
@@ -262,12 +287,17 @@ export default function BannerCarousel({ autoPlayInterval = 5000 }: BannerCarous
     touchEndX.current = 0;
   };
 
-  if (isLoading) {
+  if (isLoading || !shouldLoad) {
     return (
-      <div className="relative w-full h-[200px] sm:h-[300px] md:h-[400px] lg:h-[500px] bg-gradient-to-b from-gray-800 to-gray-900 overflow-hidden animate-pulse">
-        <div className="absolute inset-0 flex items-center justify-center">
-          <div className="w-16 h-16 border-4 border-gray-600 border-t-gray-400 rounded-full animate-spin"></div>
-        </div>
+      <div className="relative w-full h-[200px] sm:h-[300px] md:h-[400px] lg:h-[500px] bg-gradient-to-b from-gray-100 to-gray-200 dark:from-gray-800 dark:to-gray-900 overflow-hidden flex items-center justify-center">
+        <Image
+          src="/logo.png"
+          alt="MoonTVPlus"
+          width={120}
+          height={120}
+          className="opacity-50"
+          priority
+        />
       </div>
     );
   }
